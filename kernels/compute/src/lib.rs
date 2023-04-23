@@ -1,24 +1,30 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use spirv_std::{glam, spirv};
+use shared_structs::Config;
+#[allow(unused_imports)]
 use spirv_std::num_traits::Float;
+use spirv_std::{glam, spirv};
 use glam::*;
 
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_raygen(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] ray_origins: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_dirs: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] throughput: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] rng: &[UVec2],
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] throughput: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] rng: &[UVec2],
 ) {
-    let index = (id.y * 1280 + id.x) as usize;
+    let index = (id.y * config.width + id.x) as usize;
+    if id.x > config.width || id.y > config.height {
+        return;
+    }
     let r1 = rng[index].x as f32 / u32::MAX as f32;
     let r2 = rng[index].y as f32 / u32::MAX as f32;
     
     let suv = id.xy().as_vec2() + Vec2::new(r1, r2);
-    let mut uv = Vec2::new(suv.x as f32 / 1280.0, 1.0 - suv.y as f32 / 720.0) * 2.0 - 1.0;
-    uv.y *= 720.0 / 1280.0;
+    let mut uv = Vec2::new(suv.x as f32 / config.width as f32, 1.0 - suv.y as f32 / config.height as f32) * 2.0 - 1.0;
+    uv.y *= config.height as f32 / config.width as f32;
 
     let ro = Vec3::new(0.0, 0.0, -2.0);
     let rd = Vec3::new(uv.x, uv.y, 1.0).normalize();
@@ -71,11 +77,12 @@ fn march(ro: Vec3, rd: Vec3) -> f32 {
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_raytrace(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] ray_origins: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_dirs: &mut [Vec4],
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
 ) {
-    let index = (id.y * 1280 + id.x) as usize;
-    if ray_origins[index].w < 0.0 {
+    let index = (id.y * config.width + id.x) as usize;
+    if ray_origins[index].w < 0.0 || id.x > config.width || id.y > config.height {
         return;
     }
 
@@ -122,14 +129,15 @@ fn pcg_hash(input: u32) -> u32 {
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_material(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] ray_origins: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_dirs: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] throughput: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] rng: &mut [UVec2],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] output: &mut [Vec4],
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] throughput: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] rng: &mut [UVec2],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] output: &mut [Vec4],
 ) {
-    let index = (id.y * 1280 + id.x) as usize;
-    if ray_origins[index].w < 0.0 {
+    let index = (id.y * config.width + id.x) as usize;
+    if ray_origins[index].w < 0.0 || id.x > config.width || id.y > config.height {
         return;
     }
 

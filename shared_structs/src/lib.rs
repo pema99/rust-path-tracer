@@ -4,10 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
-pub struct MyVec
-{
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
-    pub w: u32
+pub struct Config {
+    pub width: u32,
+    pub height: u32,
 }

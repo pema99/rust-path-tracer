@@ -1,4 +1,3 @@
-
 const KERNEL: &[u8] = include_bytes!(env!("compute.spv"));
 
 lazy_static::lazy_static! {
@@ -6,18 +5,21 @@ lazy_static::lazy_static! {
 }
 
 use glam::{UVec2, Vec4};
-use gpgpu::{BufOps, DescriptorSet, Framework, GpuBuffer, GpuBufferUsage, Kernel, Program, Shader};
-use std::{rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering, AtomicU32}, Mutex}};
-
-#[derive(Copy, Clone)]
-pub struct Config {
-    pub width: u32,
-    pub height: u32,
-    pub samples: u32,
-}
+use gpgpu::{
+    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
+};
+pub use shared_structs::Config;
+use std::{
+    rc::Rc,
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, Mutex,
+    },
+};
 
 #[allow(dead_code)]
 struct RayGenKernel<'fw> {
+    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -27,6 +29,7 @@ struct RayGenKernel<'fw> {
 
 impl<'fw> RayGenKernel<'fw> {
     fn new(
+        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -34,6 +37,7 @@ impl<'fw> RayGenKernel<'fw> {
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
+            .bind_uniform_buffer(&config_buffer)
             .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite)
@@ -42,6 +46,7 @@ impl<'fw> RayGenKernel<'fw> {
         let kernel = Kernel::new(&FW, program);
 
         Self {
+            config_buffer,
             ray_origin_buffer,
             ray_dir_buffer,
             throughput_buffer,
@@ -53,6 +58,7 @@ impl<'fw> RayGenKernel<'fw> {
 
 #[allow(dead_code)]
 struct RayTraceKernel<'fw> {
+    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     kernel: Kernel<'fw>,
@@ -60,17 +66,20 @@ struct RayTraceKernel<'fw> {
 
 impl<'fw> RayTraceKernel<'fw> {
     fn new(
+        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
+            .bind_uniform_buffer(&config_buffer)
             .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite);
         let program = Program::new(&shader, "main_raytrace").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
         Self {
+            config_buffer,
             ray_origin_buffer,
             ray_dir_buffer,
             kernel,
@@ -80,6 +89,7 @@ impl<'fw> RayTraceKernel<'fw> {
 
 #[allow(dead_code)]
 struct MaterialKernel<'fw> {
+    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -90,6 +100,7 @@ struct MaterialKernel<'fw> {
 
 impl<'fw> MaterialKernel<'fw> {
     fn new(
+        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -98,6 +109,7 @@ impl<'fw> MaterialKernel<'fw> {
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
+            .bind_uniform_buffer(&config_buffer)
             .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite)
@@ -107,6 +119,7 @@ impl<'fw> MaterialKernel<'fw> {
         let kernel = Kernel::new(&FW, program);
 
         Self {
+            config_buffer,
             ray_origin_buffer,
             ray_dir_buffer,
             throughput_buffer,
@@ -130,14 +143,7 @@ fn denoise(config: &Config, input: &Vec<f32>) -> Vec<f32> {
     filter_output
 }
 
-pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>) {
-    let config = Config {
-        width: 1280,
-        height: 720,
-        samples: 1,
-    };
-    let fw = Framework::default();
-
+pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>, config: Config) {
     let mut rng = rand::thread_rng();
     let mut rng_data = Vec::new();
     for _ in 0..(config.width * config.height) {
@@ -148,6 +154,7 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>) {
     }
 
     let pixel_count = (config.width * config.height) as u64;
+    let config_buffer = Rc::new(GpuUniformBuffer::<Config>::from_slice(&FW, &[config]));
     let ray_origin_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
     let ray_dir_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
     let throughput_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
@@ -155,13 +162,19 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>) {
     let output_buffer = Arc::new(GpuBuffer::with_capacity(&FW, pixel_count));
 
     let rg = RayGenKernel::new(
+        config_buffer.clone(),
         ray_origin_buffer.clone(),
         ray_dir_buffer.clone(),
         throughput_buffer.clone(),
         rng_buffer.clone(),
     );
-    let rt = RayTraceKernel::new(ray_origin_buffer.clone(), ray_dir_buffer.clone());
+    let rt = RayTraceKernel::new(
+        config_buffer.clone(),
+        ray_origin_buffer.clone(),
+        ray_dir_buffer.clone(),
+    );
     let mt = MaterialKernel::new(
+        config_buffer.clone(),
         ray_origin_buffer.clone(),
         ray_dir_buffer.clone(),
         throughput_buffer.clone(),
@@ -172,7 +185,7 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>) {
     let bounces = 4;
     let samples = Arc::new(AtomicU32::new(0));
     {
-        #[allow(dead_code)]
+        #[allow(unused_variables)]
         let config = config.clone();
         let samples = samples.clone();
         let running = running.clone();
@@ -210,10 +223,13 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>) {
 
     while running.load(Ordering::Relaxed) {
         for _ in 0..1 {
-            rg.kernel.enqueue(config.width / 64, config.height, 1);
+            rg.kernel
+                .enqueue(config.width.div_ceil(64), config.height, 1);
             for _ in 0..bounces {
-                rt.kernel.enqueue(config.width / 64, config.height, 1);
-                mt.kernel.enqueue(config.width / 64, config.height, 1);
+                rt.kernel
+                    .enqueue(config.width.div_ceil(64), config.height, 1);
+                mt.kernel
+                    .enqueue(config.width.div_ceil(64), config.height, 1);
             }
             samples.fetch_add(1, Ordering::Relaxed);
         }

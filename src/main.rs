@@ -1,3 +1,5 @@
+#![feature(int_roundings)]
+
 pub mod window;
 use window::open_window;
 
