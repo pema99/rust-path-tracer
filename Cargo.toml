@@ -11,6 +11,10 @@ glam = { version = "0.22.0", features = ["bytemuck"] }
 gpgpu = { version = "0.2.0", features = ["image", "integrate-image"] }
 image = "0.24.6"
 rand = "0.8.5"
+oidn = { version = "1.4.3", optional = true }
 
 [build-dependencies]
 spirv-builder = "0.7.0"
+
+[features]
+oidn = ["dep:oidn"]

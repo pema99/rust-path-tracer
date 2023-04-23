@@ -16,7 +16,7 @@ struct RayGenKernel<'fw> {
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
-    kernel: Kernel<'fw>
+    kernel: Kernel<'fw>,
 }
 
 impl<'fw> RayGenKernel<'fw> {
@@ -41,7 +41,7 @@ impl<'fw> RayGenKernel<'fw> {
             ray_dir_buffer,
             throughput_buffer,
             rng_buffer,
-            kernel
+            kernel,
         }
     }
 }
@@ -49,7 +49,7 @@ impl<'fw> RayGenKernel<'fw> {
 struct RayTraceKernel<'fw> {
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    kernel: Kernel<'fw>
+    kernel: Kernel<'fw>,
 }
 
 impl<'fw> RayTraceKernel<'fw> {
@@ -68,21 +68,21 @@ impl<'fw> RayTraceKernel<'fw> {
         Self {
             ray_origin_buffer,
             ray_dir_buffer,
-            kernel
+            kernel,
         }
     }
 }
 
-struct MaterialKernial<'fw> {
+struct MaterialKernel<'fw> {
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
     output_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    kernel: Kernel<'fw>
+    kernel: Kernel<'fw>,
 }
 
-impl<'fw> MaterialKernial<'fw> {
+impl<'fw> MaterialKernel<'fw> {
     fn new(
         fw: &'fw Framework,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -107,9 +107,22 @@ impl<'fw> MaterialKernial<'fw> {
             throughput_buffer,
             rng_buffer,
             output_buffer,
-            kernel
+            kernel,
         }
     }
+}
+
+#[cfg(feature = "oidn")]
+fn denoise(config: &Config, input: &Vec<f32>) -> Vec<f32> {
+    use oidn::filter;
+    let mut filter_output = vec![0.0f32; input.len()];
+    let device = oidn::Device::new();
+    oidn::RayTracing::new(&device)
+        .srgb(true)
+        .image_dimensions(config.width as usize, config.height as usize)
+        .filter(&input[..], &mut filter_output[..])
+        .expect("Filter config error!");
+    filter_output
 }
 
 fn main() {
@@ -123,7 +136,10 @@ fn main() {
     let mut rng = rand::thread_rng();
     let mut rng_data = Vec::new();
     for _ in 0..(config.width * config.height) {
-        rng_data.push(UVec2::new(rand::Rng::gen(&mut rng), rand::Rng::gen(&mut rng)));
+        rng_data.push(UVec2::new(
+            rand::Rng::gen(&mut rng),
+            rand::Rng::gen(&mut rng),
+        ));
     }
 
     let pixel_count = (config.width * config.height) as u64;
@@ -132,12 +148,25 @@ fn main() {
     let throughput_buffer = Rc::new(GpuBuffer::with_capacity(&fw, pixel_count));
     let rng_buffer = Rc::new(GpuBuffer::from_slice(&fw, &rng_data));
     let output_buffer = Rc::new(GpuBuffer::with_capacity(&fw, pixel_count));
-    
-    let rg = RayGenKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone(), throughput_buffer.clone(), rng_buffer.clone());
-    let rt = RayTraceKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone());
-    let mt = MaterialKernial::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone(), throughput_buffer.clone(), rng_buffer.clone(), output_buffer.clone());
 
-    let samples = 1024;
+    let rg = RayGenKernel::new(
+        &fw,
+        ray_origin_buffer.clone(),
+        ray_dir_buffer.clone(),
+        throughput_buffer.clone(),
+        rng_buffer.clone(),
+    );
+    let rt = RayTraceKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone());
+    let mt = MaterialKernel::new(
+        &fw,
+        ray_origin_buffer.clone(),
+        ray_dir_buffer.clone(),
+        throughput_buffer.clone(),
+        rng_buffer.clone(),
+        output_buffer.clone(),
+    );
+
+    let samples = 128;
     let bounces = 4;
 
     let start = Instant::now();
@@ -151,15 +180,26 @@ fn main() {
     let elapsed = start.elapsed();
     println!("Elapsed: {}ms", elapsed.as_millis());
 
-    let output_readback = mt.output_buffer.read_vec_blocking().unwrap();
+    let mut image_buffer: Vec<f32> = mt
+        .output_buffer
+        .read_vec_blocking()
+        .unwrap()
+        .iter()
+        .map(|&x| x / (samples as f32))
+        .flat_map(|x| vec![x.x, x.y, x.z])
+        .collect();
+
+    #[cfg(feature = "oidn")]
+    {
+        image_buffer = denoise(&config, &image_buffer);
+    }
+
     let image = image::ImageBuffer::from_fn(config.width, config.height, |x, y| {
         let index = (y * config.width + x) as usize;
-        let color = output_readback[index] / (samples as f32);
-        image::Rgb([
-            (color.x * 255.0) as u8,
-            (color.y * 255.0) as u8,
-            (color.z * 255.0) as u8,
-        ])
+        let r = image_buffer[index * 3 + 0];
+        let g = image_buffer[index * 3 + 1];
+        let b = image_buffer[index * 3 + 2];
+        image::Rgb([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8])
     });
     image.save("image.png").unwrap();
 }
