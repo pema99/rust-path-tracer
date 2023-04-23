@@ -1893,6 +1893,7 @@ dependencies = [
  "imgui",
  "imgui-glium-renderer",
  "imgui-winit-support",
+ "lazy_static",
  "oidn",
  "rand",
  "shared_structs",
