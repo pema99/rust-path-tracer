@@ -132,7 +132,6 @@ impl<'fw> MaterialKernel<'fw> {
 
 #[cfg(feature = "oidn")]
 fn denoise_image(config: &TracingConfig, input: &Vec<f32>) -> Vec<f32> {
-    use oidn::filter;
     let mut filter_output = vec![0.0f32; input.len()];
     let device = oidn::Device::new();
     oidn::RayTracing::new(&device)
@@ -146,6 +145,7 @@ fn denoise_image(config: &TracingConfig, input: &Vec<f32>) -> Vec<f32> {
 pub fn trace(
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
+    samples_readbck: Arc<AtomicU32>,
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
     config: TracingConfig,
 ) {
@@ -225,6 +225,7 @@ pub fn trace(
                         println!("Error: {}", e);
                     }
                 }
+                samples_readbck.store(sample_count as u32, Ordering::Relaxed);
             }
         });
     }

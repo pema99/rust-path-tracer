@@ -12,7 +12,7 @@ use glium::{
 };
 use imgui_winit_support::WinitPlatform;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
 };
 
@@ -22,11 +22,14 @@ struct AppState {
     rendertarget: Texture2d,
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
+    samples_readback: Arc<AtomicU32>,
     denoise: Arc<AtomicBool>,
     config: TracingConfig,
 }
 
-fn make_view_dependent_state(display: &Display) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, Texture2d) {
+fn make_view_dependent_state(
+    display: &Display,
+) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, Texture2d) {
     let inner_size = display.get_framebuffer_dimensions();
     let config = TracingConfig {
         width: inner_size.0,
@@ -44,7 +47,8 @@ fn make_view_dependent_state(display: &Display) -> (TracingConfig, Arc<Mutex<Vec
         MipmapsOption::NoMipmap,
         config.width,
         config.height,
-    ).unwrap();
+    )
+    .unwrap();
     (config, framebuffer, rendertarget)
 }
 
@@ -53,20 +57,23 @@ impl AppState {
         let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
         let running = Arc::new(AtomicBool::new(false));
         let denoise = Arc::new(AtomicBool::new(false));
+        let samples = Arc::new(AtomicU32::new(0));
         Self {
             rendertarget,
             framebuffer,
             running,
+            samples_readback: samples,
             denoise,
             config,
         }
     }
 
-    fn reinitialize_view_dependent_state(&mut self, display: &Display) {
+    fn initialize_for_new_render(&mut self, display: &Display) {
         let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
         self.config = config;
         self.framebuffer = framebuffer;
         self.rendertarget = rendertarget;
+        self.samples_readback.store(0, Ordering::Relaxed);
     }
 }
 
@@ -97,28 +104,38 @@ pub fn open_window() {
         Event::RedrawRequested(_) => {
             let ui = imgui_context.frame();
 
-            ui.window("Settings").build(|| {
-                if app_state.running.load(Ordering::Relaxed) {
-                    if ui.button("Stop") {
-                        display.gl_window().window().set_resizable(true);
-                        app_state.running.store(false, Ordering::Relaxed);
+            ui.window("Settings")
+                .size([200.0, 120.0], imgui::Condition::Appearing)
+                .build(|| {
+                    if app_state.running.load(Ordering::Relaxed) {
+                        if ui.button("Stop") {
+                            display.gl_window().window().set_resizable(true);
+                            app_state.running.store(false, Ordering::Relaxed);
+                        }
+                    } else {
+                        if ui.button("Start") {
+                            display.gl_window().window().set_resizable(false);
+                            app_state.initialize_for_new_render(&display);
+                            start_render(&app_state);
+                        }
                     }
-                } else {
-                    if ui.button("Start") {
-                        display.gl_window().window().set_resizable(false);
-                        app_state.reinitialize_view_dependent_state(&display);
-                        start_render(&app_state);
-                    }
-                }
 
-                #[cfg(feature = "oidn")]
-                {
-                    let mut denoise_checked = app_state.denoise.load(Ordering::Relaxed);
-                    if ui.checkbox("Denoise", &mut denoise_checked) {
-                        app_state.denoise.store(denoise_checked, Ordering::Relaxed);
+                    #[cfg(feature = "oidn")]
+                    {
+                        let mut denoise_checked = app_state.denoise.load(Ordering::Relaxed);
+                        if ui.checkbox("Denoise", &mut denoise_checked) {
+                            app_state.denoise.store(denoise_checked, Ordering::Relaxed);
+                        }
                     }
-                }
-            });
+
+                    ui.label_text(
+                        &app_state
+                            .samples_readback
+                            .load(Ordering::Relaxed)
+                            .to_string(),
+                        "Current SPP",
+                    );
+                });
 
             // Setup for drawing
             let gl_window = display.gl_window();
@@ -177,10 +194,11 @@ fn start_render(app_state: &AppState) {
     app_state.running.store(true, Ordering::Relaxed);
     let data = app_state.framebuffer.clone();
     let running = app_state.running.clone();
+    let samples_readback = app_state.samples_readback.clone();
     let denoise = app_state.denoise.clone();
     let config = app_state.config.clone();
     std::thread::spawn(move || {
-        trace(data, running, denoise, config);
+        trace(data, running, samples_readback, denoise, config);
     });
 }
 
