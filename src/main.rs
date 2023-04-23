@@ -15,6 +15,7 @@ struct RayGenKernel<'fw> {
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
+    rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
     kernel: Kernel<'fw>
 }
 
@@ -24,12 +25,14 @@ impl<'fw> RayGenKernel<'fw> {
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
+        rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&fw, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
             .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite);
+            .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(&rng_buffer, GpuBufferUsage::ReadOnly);
         let program = Program::new(&shader, "main_raygen").add_descriptor_set(bindings);
         let kernel = Kernel::new(&fw, program);
 
@@ -37,6 +40,7 @@ impl<'fw> RayGenKernel<'fw> {
             ray_origin_buffer,
             ray_dir_buffer,
             throughput_buffer,
+            rng_buffer,
             kernel
         }
     }
@@ -128,8 +132,8 @@ fn main() {
     let throughput_buffer = Rc::new(GpuBuffer::with_capacity(&fw, pixel_count));
     let rng_buffer = Rc::new(GpuBuffer::from_slice(&fw, &rng_data));
     let output_buffer = Rc::new(GpuBuffer::with_capacity(&fw, pixel_count));
-
-    let rg = RayGenKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone(), throughput_buffer.clone());
+    
+    let rg = RayGenKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone(), throughput_buffer.clone(), rng_buffer.clone());
     let rt = RayTraceKernel::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone());
     let mt = MaterialKernial::new(&fw, ray_origin_buffer.clone(), ray_dir_buffer.clone(), throughput_buffer.clone(), rng_buffer.clone(), output_buffer.clone());
 
@@ -147,11 +151,7 @@ fn main() {
     let elapsed = start.elapsed();
     println!("Elapsed: {}ms", elapsed.as_millis());
 
-    let ro_readback = rg.ray_origin_buffer.read_vec_blocking().unwrap();
-    let rd_readback = rg.ray_dir_buffer.read_vec_blocking().unwrap();
-    let throughput_readback = rg.throughput_buffer.read_vec_blocking().unwrap();
     let output_readback = mt.output_buffer.read_vec_blocking().unwrap();
-
     let image = image::ImageBuffer::from_fn(config.width, config.height, |x, y| {
         let index = (y * config.width + x) as usize;
         let color = output_readback[index] / (samples as f32);

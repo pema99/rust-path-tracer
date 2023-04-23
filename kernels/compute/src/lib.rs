@@ -10,10 +10,14 @@ pub fn main_raygen(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] ray_origins: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_dirs: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] throughput: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] rng: &[UVec2],
 ) {
     let index = (id.y * 1280 + id.x) as usize;
+    let r1 = rng[index].x as f32 / u32::MAX as f32;
+    let r2 = rng[index].y as f32 / u32::MAX as f32;
     
-    let mut uv = Vec2::new(id.x as f32 / 1280.0, 1.0 - id.y as f32 / 720.0) * 2.0 - 1.0;
+    let suv = id.xy().as_vec2() + Vec2::new(r1, r2);
+    let mut uv = Vec2::new(suv.x as f32 / 1280.0, 1.0 - suv.y as f32 / 720.0) * 2.0 - 1.0;
     uv.y *= 720.0 / 1280.0;
 
     let ro = Vec3::new(0.0, 0.0, -2.0);
@@ -102,13 +106,11 @@ fn cosine_sample_hemisphere(r1: f32, r2: f32) -> Vec3 {
 }
 
 fn create_cartesian(up: Vec3) -> (Vec3, Vec3, Vec3) {
-    let nt = if up.x.abs() > up.y.abs() {
-        Vec3::new(up.z, 0.0, -up.x).normalize()
-    } else {
-        Vec3::new(0.0, -up.z, up.y).normalize()
-    };
-    let nb = up.cross(nt);
-    (up, nt, nb)
+    let arbitrary = Vec3::new(0.1, 0.5, 0.9);
+    let temp_vec = up.cross(arbitrary).normalize();
+    let right = temp_vec.cross(up).normalize();
+    let forward = up.cross(right).normalize();
+    (up, right, forward)
 }
 
 fn pcg_hash(input: u32) -> u32 {
@@ -142,7 +144,6 @@ pub fn main_material(
         output[index] += throughput[index] * Vec4::ONE;
         ray_origins[index].w = -1.0;
     } else {
-        rng[index] = UVec2::new(pcg_hash(rng[index].x), pcg_hash(rng[index].y));
         let r1 = rng[index].x as f32 / u32::MAX as f32;
         let r2 = rng[index].y as f32 / u32::MAX as f32;
 
@@ -160,4 +161,6 @@ pub fn main_material(
         ray_dirs[index] = sample_dir.extend(0.0);
         ray_origins[index] = (hit + norm * 0.01).extend(0.0);
     }
+
+    rng[index] = UVec2::new(pcg_hash(rng[index].x), pcg_hash(rng[index].y));
 }
