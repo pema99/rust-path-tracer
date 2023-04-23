@@ -16,43 +16,57 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use crate::trace::{trace, Config};
+use crate::trace::{trace, TracingConfig};
 
 struct AppState {
     rendertarget: Texture2d,
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
-    config: Config,
+    denoise: Arc<AtomicBool>,
+    config: TracingConfig,
+}
+
+fn make_view_dependent_state(display: &Display) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, Texture2d) {
+    let inner_size = display.get_framebuffer_dimensions();
+    let config = TracingConfig {
+        width: inner_size.0,
+        height: inner_size.1,
+    };
+    let framebuffer = Arc::new(Mutex::new(vec![
+        0.0;
+        config.width as usize
+            * config.height as usize
+            * 3
+    ]));
+    let rendertarget = Texture2d::empty_with_format(
+        display,
+        UncompressedFloatFormat::F32F32F32,
+        MipmapsOption::NoMipmap,
+        config.width,
+        config.height,
+    ).unwrap();
+    (config, framebuffer, rendertarget)
 }
 
 impl AppState {
     fn new(display: &Display) -> Self {
-        let inner_size = display.get_framebuffer_dimensions();
-        let config = Config {
-            width: inner_size.0,
-            height: inner_size.1,
-        };
-        let framebuffer = Arc::new(Mutex::new(vec![
-            0.0;
-            config.width as usize
-                * config.height as usize
-                * 3
-        ]));
-        let rendertarget = Texture2d::empty_with_format(
-            display,
-            UncompressedFloatFormat::F32F32F32,
-            MipmapsOption::NoMipmap,
-            config.width,
-            config.height,
-        )
-        .unwrap();
+        let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
         let running = Arc::new(AtomicBool::new(false));
+        let denoise = Arc::new(AtomicBool::new(false));
         Self {
             rendertarget,
             framebuffer,
             running,
+            denoise,
             config,
         }
+    }
+
+    fn reinitialize_view_dependent_state(&mut self, display: &Display) {
+        let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
+        self.config = config;
+        self.framebuffer = framebuffer;
+        self.rendertarget = rendertarget;
     }
 }
 
@@ -92,8 +106,16 @@ pub fn open_window() {
                 } else {
                     if ui.button("Start") {
                         display.gl_window().window().set_resizable(false);
-                        app_state = AppState::new(&display);
+                        app_state.reinitialize_view_dependent_state(&display);
                         start_render(&app_state);
+                    }
+                }
+
+                #[cfg(feature = "oidn")]
+                {
+                    let mut denoise_checked = app_state.denoise.load(Ordering::Relaxed);
+                    if ui.checkbox("Denoise", &mut denoise_checked) {
+                        app_state.denoise.store(denoise_checked, Ordering::Relaxed);
                     }
                 }
             });
@@ -155,9 +177,10 @@ fn start_render(app_state: &AppState) {
     app_state.running.store(true, Ordering::Relaxed);
     let data = app_state.framebuffer.clone();
     let running = app_state.running.clone();
+    let denoise = app_state.denoise.clone();
     let config = app_state.config.clone();
     std::thread::spawn(move || {
-        trace(data, running, config);
+        trace(data, running, denoise, config);
     });
 }
 

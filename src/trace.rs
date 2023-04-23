@@ -8,7 +8,7 @@ use glam::{UVec2, Vec4};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
-pub use shared_structs::Config;
+pub use shared_structs::TracingConfig;
 use std::{
     rc::Rc,
     sync::{
@@ -19,7 +19,7 @@ use std::{
 
 #[allow(dead_code)]
 struct RayGenKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -29,7 +29,7 @@ struct RayGenKernel<'fw> {
 
 impl<'fw> RayGenKernel<'fw> {
     fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -58,7 +58,7 @@ impl<'fw> RayGenKernel<'fw> {
 
 #[allow(dead_code)]
 struct RayTraceKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     kernel: Kernel<'fw>,
@@ -66,7 +66,7 @@ struct RayTraceKernel<'fw> {
 
 impl<'fw> RayTraceKernel<'fw> {
     fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ) -> Self {
@@ -89,7 +89,7 @@ impl<'fw> RayTraceKernel<'fw> {
 
 #[allow(dead_code)]
 struct MaterialKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
     ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -100,7 +100,7 @@ struct MaterialKernel<'fw> {
 
 impl<'fw> MaterialKernel<'fw> {
     fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, Config>>,
+        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
         ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
@@ -131,7 +131,7 @@ impl<'fw> MaterialKernel<'fw> {
 }
 
 #[cfg(feature = "oidn")]
-fn denoise(config: &Config, input: &Vec<f32>) -> Vec<f32> {
+fn denoise_image(config: &TracingConfig, input: &Vec<f32>) -> Vec<f32> {
     use oidn::filter;
     let mut filter_output = vec![0.0f32; input.len()];
     let device = oidn::Device::new();
@@ -143,7 +143,12 @@ fn denoise(config: &Config, input: &Vec<f32>) -> Vec<f32> {
     filter_output
 }
 
-pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>, config: Config) {
+pub fn trace(
+    framebuffer: Arc<Mutex<Vec<f32>>>,
+    running: Arc<AtomicBool>,
+    #[allow(unused_variables)] denoise: Arc<AtomicBool>,
+    config: TracingConfig,
+) {
     let mut rng = rand::thread_rng();
     let mut rng_data = Vec::new();
     for _ in 0..(config.width * config.height) {
@@ -154,7 +159,10 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>, config
     }
 
     let pixel_count = (config.width * config.height) as u64;
-    let config_buffer = Rc::new(GpuUniformBuffer::<Config>::from_slice(&FW, &[config]));
+    let config_buffer = Rc::new(GpuUniformBuffer::<TracingConfig>::from_slice(
+        &FW,
+        &[config],
+    ));
     let ray_origin_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
     let ray_dir_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
     let throughput_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
@@ -204,8 +212,8 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>, config
                     .collect();
 
                 #[cfg(feature = "oidn")]
-                {
-                    image_buffer = denoise(&config, &image_buffer);
+                if denoise.load(Ordering::Relaxed) {
+                    image_buffer = denoise_image(&config, &image_buffer);
                 }
 
                 // Readback
@@ -222,7 +230,7 @@ pub fn trace(framebuffer: Arc<Mutex<Vec<f32>>>, running: Arc<AtomicBool>, config
     }
 
     while running.load(Ordering::Relaxed) {
-        for _ in 0..1 {
+        for _ in 0..4 {
             rg.kernel
                 .enqueue(config.width.div_ceil(64), config.height, 1);
             for _ in 0..bounces {

@@ -1,6 +1,6 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use shared_structs::Config;
+use shared_structs::TracingConfig;
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam, spirv};
@@ -9,7 +9,7 @@ use glam::*;
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_raygen(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] throughput: &mut [Vec4],
@@ -77,7 +77,7 @@ fn march(ro: Vec3, rd: Vec3) -> f32 {
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_raytrace(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
 ) {
@@ -129,7 +129,7 @@ fn pcg_hash(input: u32) -> u32 {
 #[spirv(compute(threads(64, 1, 1)))]
 pub fn main_material(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &Config,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] ray_origins: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_dirs: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] throughput: &mut [Vec4],

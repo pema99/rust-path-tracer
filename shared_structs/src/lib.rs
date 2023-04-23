@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
-pub struct Config {
+pub struct TracingConfig {
     pub width: u32,
-    pub height: u32,
+    pub height: u32
 }
