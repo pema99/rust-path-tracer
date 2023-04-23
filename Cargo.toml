@@ -1,0 +1,16 @@
+[package]
+name = "rustic"
+version = "0.1.0"
+authors = ["Pema Malling <pemamalling@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+shared_structs = { path = "shared_structs" }
+bytemuck = { version = "1.13.1", features = ["derive"] }
+glam = { version = "0.22.0", features = ["bytemuck"] }
+gpgpu = { version = "0.2.0", features = ["image", "integrate-image"] }
+image = "0.24.6"
+rand = "0.8.5"
+
+[build-dependencies]
+spirv-builder = "0.7.0"
