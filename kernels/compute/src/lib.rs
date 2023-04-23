@@ -157,14 +157,18 @@ pub fn main_material(
 
         let norm = normal(hit);
         let (up, nt, nb) = create_cartesian(norm);
-        let sample = uniform_sample_hemisphere(r1, r2);
+        let sample = cosine_sample_hemisphere(r1, r2);
         let sample_dir = Vec3::new(
             sample.x * nb.x + sample.y * up.x + sample.z * nt.x,
             sample.x * nb.y + sample.y * up.y + sample.z * nt.y,
             sample.x * nb.z + sample.y * up.z + sample.z * nt.z).normalize();
 
         // albedo = normal
-        throughput[index] = throughput[index] * (norm * 0.5 + 0.5).extend(1.0);
+        let albedo = (norm * 0.5 + 0.5) / core::f32::consts::PI;
+        let cos_theta = norm.dot(sample_dir).max(0.0);
+        let attenuation = albedo * cos_theta;
+        let pdf = cos_theta / core::f32::consts::PI;
+        throughput[index] *= (attenuation / pdf).extend(1.0);
         
         ray_dirs[index] = sample_dir.extend(0.0);
         ray_origins[index] = (hit + norm * 0.01).extend(0.0);
