@@ -30,11 +30,11 @@ pub fn main_raygen(
 
 fn map(p: Vec3) -> f32 {
     // metaball
-    let mut d = (p + vec3(0.4, 0.0, -0.5)).length() - 0.5;
-    d = d.min((p + vec3(0.7, -0.2, -0.3)).length() - 0.4);
+    let mut d = (p - vec3(-0.4, -0.2, 0.5)).length() - 0.5;
+    d = d.min((p - vec3(-0.7, -0.4, 0.3)).length() - 0.4);
 
     // ball
-    d = d.min((p + Vec3::new(-0.5, 0.0, 0.3)).length() - 0.5);
+    d = d.min((p - Vec3::new(0.5, -0.2, -0.3)).length() - 0.5);
 
     // walls
     d = d.min((p.y+1.0).abs());
