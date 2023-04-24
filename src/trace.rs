@@ -132,7 +132,6 @@ impl<'fw> MaterialKernel<'fw> {
 
 #[cfg(feature = "oidn")]
 fn denoise_image(config: &TracingConfig, input: &mut [f32]) {
-    let mut filter_output = vec![0.0f32; input.len()];
     let device = oidn::Device::new();
     oidn::RayTracing::new(&device)
         .srgb(true)
