@@ -29,11 +29,13 @@ struct AppState {
 
 fn make_view_dependent_state(
     display: &Display,
+    config: Option<TracingConfig>,
 ) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, Texture2d) {
     let inner_size = display.get_framebuffer_dimensions();
     let config = TracingConfig {
         width: inner_size.0,
         height: inner_size.1,
+        ..config.unwrap_or_default()
     };
     let framebuffer = Arc::new(Mutex::new(vec![
         0.0;
@@ -54,7 +56,7 @@ fn make_view_dependent_state(
 
 impl AppState {
     fn new(display: &Display) -> Self {
-        let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
+        let (config, framebuffer, rendertarget) = make_view_dependent_state(display, None);
         let running = Arc::new(AtomicBool::new(false));
         let denoise = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(AtomicU32::new(0));
@@ -69,7 +71,8 @@ impl AppState {
     }
 
     fn initialize_for_new_render(&mut self, display: &Display) {
-        let (config, framebuffer, rendertarget) = make_view_dependent_state(display);
+        let (config, framebuffer, rendertarget) =
+            make_view_dependent_state(display, Some(self.config));
         self.config = config;
         self.framebuffer = framebuffer;
         self.rendertarget = rendertarget;

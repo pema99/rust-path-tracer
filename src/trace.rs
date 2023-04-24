@@ -18,101 +18,22 @@ use std::{
 };
 
 #[allow(dead_code)]
-struct RayGenKernel<'fw> {
+struct PathTracingKernel<'fw> {
     config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-    ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
-    kernel: Kernel<'fw>,
-}
-
-impl<'fw> RayGenKernel<'fw> {
-    fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-        ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
-    ) -> Self {
-        let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
-        let bindings = DescriptorSet::default()
-            .bind_uniform_buffer(&config_buffer)
-            .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&rng_buffer, GpuBufferUsage::ReadOnly);
-        let program = Program::new(&shader, "main_raygen").add_descriptor_set(bindings);
-        let kernel = Kernel::new(&FW, program);
-
-        Self {
-            config_buffer,
-            ray_origin_buffer,
-            ray_dir_buffer,
-            throughput_buffer,
-            rng_buffer,
-            kernel,
-        }
-    }
-}
-
-#[allow(dead_code)]
-struct RayTraceKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-    ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    kernel: Kernel<'fw>,
-}
-
-impl<'fw> RayTraceKernel<'fw> {
-    fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-        ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    ) -> Self {
-        let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
-        let bindings = DescriptorSet::default()
-            .bind_uniform_buffer(&config_buffer)
-            .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite);
-        let program = Program::new(&shader, "main_raytrace").add_descriptor_set(bindings);
-        let kernel = Kernel::new(&FW, program);
-
-        Self {
-            config_buffer,
-            ray_origin_buffer,
-            ray_dir_buffer,
-            kernel,
-        }
-    }
-}
-
-#[allow(dead_code)]
-struct MaterialKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-    ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-    throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
     rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
     output_buffer: Arc<GpuBuffer<'fw, Vec4>>,
     kernel: Kernel<'fw>,
 }
 
-impl<'fw> MaterialKernel<'fw> {
+impl<'fw> PathTracingKernel<'fw> {
     fn new(
         config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-        ray_origin_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        ray_dir_buffer: Rc<GpuBuffer<'fw, Vec4>>,
-        throughput_buffer: Rc<GpuBuffer<'fw, Vec4>>,
         rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
         output_buffer: Arc<GpuBuffer<'fw, Vec4>>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
             .bind_uniform_buffer(&config_buffer)
-            .bind_buffer(&ray_origin_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&ray_dir_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&throughput_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&rng_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&output_buffer, GpuBufferUsage::ReadWrite);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
@@ -120,9 +41,6 @@ impl<'fw> MaterialKernel<'fw> {
 
         Self {
             config_buffer,
-            ray_origin_buffer,
-            ray_dir_buffer,
-            throughput_buffer,
             rng_buffer,
             output_buffer,
             kernel,
@@ -161,37 +79,18 @@ pub fn trace(
         &FW,
         &[config],
     ));
-    let ray_origin_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
-    let ray_dir_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
-    let throughput_buffer = Rc::new(GpuBuffer::with_capacity(&FW, pixel_count));
     let rng_buffer = Rc::new(GpuBuffer::from_slice(&FW, &rng_data));
     let output_buffer = Arc::new(GpuBuffer::with_capacity(&FW, pixel_count));
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 
-    let rg = RayGenKernel::new(
+    let rt = PathTracingKernel::new(
         config_buffer.clone(),
-        ray_origin_buffer.clone(),
-        ray_dir_buffer.clone(),
-        throughput_buffer.clone(),
-        rng_buffer.clone(),
-    );
-    let rt = RayTraceKernel::new(
-        config_buffer.clone(),
-        ray_origin_buffer.clone(),
-        ray_dir_buffer.clone(),
-    );
-    let mt = MaterialKernel::new(
-        config_buffer.clone(),
-        ray_origin_buffer.clone(),
-        ray_dir_buffer.clone(),
-        throughput_buffer.clone(),
         rng_buffer.clone(),
         output_buffer.clone(),
     );
 
-    let bounces = 4;
     let samples = Arc::new(AtomicU32::new(0));
     {
         #[allow(unused_variables)]
@@ -209,12 +108,12 @@ pub fn trace(
                     image_buffer[i * 3 + 1] = col.y / sample_count;
                     image_buffer[i * 3 + 2] = col.z / sample_count;
                 }
-        
+
                 #[cfg(feature = "oidn")]
                 if denoise.load(Ordering::Relaxed) {
                     denoise_image(&config, &mut image_buffer);
                 }
-        
+
                 // Readback
                 match framebuffer.lock() {
                     Ok(mut fb) => {
@@ -230,14 +129,8 @@ pub fn trace(
     }
 
     while running.load(Ordering::Relaxed) {
-        rg.kernel
-            .enqueue(config.width.div_ceil(64), config.height, 1);
-        for _ in 0..bounces {
-            rt.kernel
-                .enqueue(config.width.div_ceil(64), config.height, 1);
-            mt.kernel
-                .enqueue(config.width.div_ceil(64), config.height, 1);
-        }
+        rt.kernel
+            .enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
         samples.fetch_add(1, Ordering::Relaxed);
 
         // If we're scheduling too much work, and the readback thread can't keep up,
