@@ -1,15 +1,15 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use bsdf::BSDF;
+use glam::*;
 use shared_structs::TracingConfig;
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam, spirv};
-use glam::*;
-use util::gen_random;
 
-mod util;
 mod bsdf;
+mod rng;
+mod util;
 
 fn map(p: Vec3) -> f32 {
     // metaball
@@ -20,12 +20,12 @@ fn map(p: Vec3) -> f32 {
     d = d.min((p - Vec3::new(0.5, -0.2, -0.3)).length() - 0.5);
 
     // walls
-    d = d.min((p.y+1.0).abs());
-    d = d.min((p.y-1.0).abs());
-    d = d.min((p.x+1.5).abs());
-    d = d.min((p.x-1.5).abs());
-    d = d.min((p.z+3.5).abs());
-    d = d.min((p.z-2.0).abs());
+    d = d.min((p.y + 1.0).abs());
+    d = d.min((p.y - 1.0).abs());
+    d = d.min((p.x + 1.5).abs());
+    d = d.min((p.x - 1.5).abs());
+    d = d.min((p.z + 3.5).abs());
+    d = d.min((p.z - 2.0).abs());
 
     d
 }
@@ -36,7 +36,8 @@ fn normal(p: Vec3) -> Vec3 {
         map(p + h.yxx()) - map(p - h.yxx()),
         map(p + h.xyx()) - map(p - h.xyx()),
         map(p + h.xxy()) - map(p - h.xxy()),
-    ).normalize()
+    )
+    .normalize()
 }
 
 fn march(ro: Vec3, rd: Vec3) -> f32 {
@@ -59,15 +60,21 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] output: &mut [Vec4],
 ) {
     let index = (id.y * config.width + id.x) as usize;
-    
+
     // Handle non-divisible workgroup sizes.
     if id.x > config.width || id.y > config.height {
         return;
     }
 
+    let mut rng_state = rng::RngState::new(&mut rng[index]);
+
     // Get anti-aliased pixel coordinates.
-    let suv = id.xy().as_vec2() + gen_random(&mut rng[index]);
-    let mut uv = Vec2::new(suv.x as f32 / config.width as f32, 1.0 - suv.y as f32 / config.height as f32) * 2.0 - 1.0;
+    let suv = id.xy().as_vec2() + rng_state.gen_float_pair();
+    let mut uv = Vec2::new(
+        suv.x as f32 / config.width as f32,
+        1.0 - suv.y as f32 / config.height as f32,
+    ) * 2.0
+        - 1.0;
     uv.y *= config.height as f32 / config.width as f32;
 
     // Setup camera.
@@ -85,13 +92,17 @@ pub fn main_material(
             output[index] += (throughput * Vec3::ONE).extend(1.0);
             return;
         } else {
-            let rng_sample = gen_random(&mut rng[index]);
-
             let norm = normal(hit);
-            let bsdf = bsdf::Lambertian { albedo: norm * 0.5 + 0.5 };
-            let bsdf_sample = bsdf.sample(ray_direction, norm, rng_sample);
+
+            let albedo = norm * 0.5 + 0.5;
+            let bsdf = bsdf::PBR {
+                albedo: albedo,
+                roughness: 0.5,
+                metallic: 0.3,
+            };
+            let bsdf_sample = bsdf.sample(-ray_direction, norm, &mut rng_state);
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
-            
+
             ray_direction = bsdf_sample.sampled_direction;
             ray_origin = hit + norm * 0.01;
         }
