@@ -4,47 +4,40 @@ lazy_static::lazy_static! {
     static ref FW: gpgpu::Framework = gpgpu::Framework::default();
 }
 
-use glam::{UVec2, Vec4};
+use glam::{UVec2, UVec4, Vec4};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
+use russimp::scene::{PostProcess::*, Scene};
 pub use shared_structs::TracingConfig;
 use std::{
-    rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
 };
 
-#[allow(dead_code)]
-struct PathTracingKernel<'fw> {
-    config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-    rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
-    output_buffer: Arc<GpuBuffer<'fw, Vec4>>,
-    kernel: Kernel<'fw>,
-}
+struct PathTracingKernel<'fw>(Kernel<'fw>);
 
 impl<'fw> PathTracingKernel<'fw> {
     fn new(
-        config_buffer: Rc<GpuUniformBuffer<'fw, TracingConfig>>,
-        rng_buffer: Rc<GpuBuffer<'fw, UVec2>>,
-        output_buffer: Arc<GpuBuffer<'fw, Vec4>>,
+        config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
+        rng_buffer: &GpuBuffer<'fw, UVec2>,
+        output_buffer: &GpuBuffer<'fw, Vec4>,
+        world: &World<'fw>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let bindings = DescriptorSet::default()
-            .bind_uniform_buffer(&config_buffer)
-            .bind_buffer(&rng_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&output_buffer, GpuBufferUsage::ReadWrite);
+            .bind_uniform_buffer(config_buffer)
+            .bind_buffer(rng_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(output_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(&world.vertex_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.normal_buffer, GpuBufferUsage::ReadOnly);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
-        Self {
-            config_buffer,
-            rng_buffer,
-            output_buffer,
-            kernel,
-        }
+        Self(kernel)
     }
 }
 
@@ -58,6 +51,53 @@ fn denoise_image(config: &TracingConfig, input: &mut [f32]) {
         .expect("Filter config error!");
 }
 
+struct World<'fw> {
+    vertex_buffer: GpuBuffer<'fw, Vec4>,
+    index_buffer: GpuBuffer<'fw, UVec4>,
+    normal_buffer: GpuBuffer<'fw, Vec4>,
+}
+
+impl<'fw> World<'fw> {
+    fn from_path(path: &str) -> Self {
+        let blend = Scene::from_file(
+            path,
+            vec![
+                JoinIdenticalVertices,
+                Triangulate,
+                SortByPrimitiveType,
+                GenerateSmoothNormals,
+                PreTransformVertices,
+                GenerateUVCoords,
+                TransformUVCoords,
+            ],
+        )
+        .unwrap();
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut normals = Vec::new();
+
+        for (idx, mesh) in blend.meshes.iter().enumerate() {
+            for v in &mesh.vertices {
+                vertices.push(Vec4::new(v.x, v.z, v.y, 0.0));
+            }
+            for f in &mesh.faces {
+                assert_eq!(f.0.len(), 3);
+                indices.push(UVec4::new(f.0[0], f.0[2], f.0[1], idx as u32));
+            }
+            for n in &mesh.normals {
+                normals.push(Vec4::new(n.x, n.z, n.y, 0.0));
+            }
+        }
+
+        Self {
+            vertex_buffer: GpuBuffer::from_slice(&FW, &vertices),
+            index_buffer: GpuBuffer::from_slice(&FW, &indices),
+            normal_buffer: GpuBuffer::from_slice(&FW, &normals),
+        }
+    }
+}
+
 pub fn trace(
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
@@ -65,6 +105,8 @@ pub fn trace(
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
     config: TracingConfig,
 ) {
+    let world = World::from_path("scene.blend");
+
     let mut rng = rand::thread_rng();
     let mut rng_data = Vec::new();
     for _ in 0..(config.width * config.height) {
@@ -75,21 +117,14 @@ pub fn trace(
     }
 
     let pixel_count = (config.width * config.height) as u64;
-    let config_buffer = Rc::new(GpuUniformBuffer::<TracingConfig>::from_slice(
-        &FW,
-        &[config],
-    ));
-    let rng_buffer = Rc::new(GpuBuffer::from_slice(&FW, &rng_data));
-    let output_buffer = Arc::new(GpuBuffer::with_capacity(&FW, pixel_count));
+    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config]);
+    let rng_buffer = GpuBuffer::from_slice(&FW, &rng_data);
+    let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 
-    let rt = PathTracingKernel::new(
-        config_buffer.clone(),
-        rng_buffer.clone(),
-        output_buffer.clone(),
-    );
+    let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
 
     let samples = Arc::new(AtomicU32::new(0));
     {
@@ -129,8 +164,7 @@ pub fn trace(
     }
 
     while running.load(Ordering::Relaxed) {
-        rt.kernel
-            .enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
+        rt.0.enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
         samples.fetch_add(1, Ordering::Relaxed);
 
         // If we're scheduling too much work, and the readback thread can't keep up,
