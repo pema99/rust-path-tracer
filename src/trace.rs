@@ -5,17 +5,18 @@ lazy_static::lazy_static! {
 }
 
 use glam::{UVec2, UVec4, Vec4};
+use gnuplot::{AutoOption, AxesCommon, Coordinate::Graph, Figure, PlotOption::Caption};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
 use russimp::scene::{PostProcess::*, Scene};
 pub use shared_structs::TracingConfig;
-use std::{
-    sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc, Mutex,
-    },
+use std::sync::{
+    atomic::{AtomicBool, AtomicU32, Ordering},
+    Arc, Mutex,
 };
+
+use crate::bvh::BVH;
 
 struct PathTracingKernel<'fw>(Kernel<'fw>);
 
@@ -89,6 +90,54 @@ impl<'fw> World<'fw> {
                 normals.push(Vec4::new(n.x, n.z, n.y, 0.0));
             }
         }
+
+        // time the build:
+        let now = std::time::Instant::now();
+        let bvh = BVH::build(&vertices, &indices);
+        println!("BVH build time: {:?}", now.elapsed());
+
+        /*
+        let mut fg = Figure::new();
+        let mut ax = fg
+            .axes3d()
+            .set_title("A plot", &[])
+            .set_x_label("x", &[])
+            .set_y_label("y", &[])
+            .set_z_label("z", &[]);
+
+        for node in bvh.nodes.iter().filter(|x| true) {
+            let min = node.aabb_min;
+            let max = node.aabb_max;
+
+            let points = vec![
+                (min.x, min.y, min.z),
+                (min.x, min.y, max.z),
+                (min.x, max.y, max.z),
+                (min.x, min.y, max.z),
+                (max.x, min.y, max.z),
+                (max.x, max.y, max.z),
+                (max.x, min.y, max.z),
+                (max.x, min.y, min.z),
+                (max.x, max.y, min.z),
+                (max.x, min.y, min.z),
+                (min.x, min.y, min.z),
+                (min.x, max.y, min.z),
+                (min.x, max.y, max.z),
+                (max.x, max.y, max.z),
+                (max.x, max.y, min.z),
+                (min.x, max.y, min.z),
+            ];
+            // draw a wireframe cube out of lines:
+            ax.lines(
+                points.iter().map(|(x, y, z)| *x),
+                points.iter().map(|(x, y, z)| *y),
+                points.iter().map(|(x, y, z)| *z),
+                &[],
+            );
+        }
+
+        fg.show().unwrap();
+        */
 
         Self {
             vertex_buffer: GpuBuffer::from_slice(&FW, &vertices),

@@ -17,6 +17,7 @@ imgui-glium-renderer = "0.11.0"
 imgui-winit-support = "0.11.0"
 lazy_static = "1.4.0"
 russimp = { version = "2.0.4", features = ["prebuilt"] }
+gnuplot = "0.0.37"
 
 [build-dependencies]
 spirv-builder = "0.7.0"

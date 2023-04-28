@@ -907,6 +907,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gnuplot"
+version = "0.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de437277a7ec10de5f34e3147c7da4c6d8b279c5d8ae1e33e842fd9432bb0f3"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "gpgpu"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1904,6 +1913,7 @@ dependencies = [
  "bytemuck",
  "glam",
  "glium",
+ "gnuplot",
  "gpgpu",
  "imgui",
  "imgui-glium-renderer",
