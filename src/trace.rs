@@ -106,8 +106,8 @@ impl<'fw> World<'fw> {
             .set_z_label("z", &[]);
 
         for node in bvh.nodes.iter().filter(|x| true) {
-            let min = node.aabb_min;
-            let max = node.aabb_max;
+            let min = node.aabb_min();
+            let max = node.aabb_max();
 
             let points = vec![
                 (min.x, min.y, min.z),
