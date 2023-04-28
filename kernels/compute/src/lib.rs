@@ -10,6 +10,8 @@ use spirv_std::{glam, spirv};
 mod bsdf;
 mod rng;
 mod util;
+mod intersection;
+mod vec;
 
 fn map(p: Vec3) -> f32 {
     // metaball

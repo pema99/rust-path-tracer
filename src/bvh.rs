@@ -1,5 +1,5 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
-use shared_structs::BVHNode;
+use shared_structs::{BVHNode, BVHReference};
 
 // TODO: Use triangle buffer directly instead of 2 indirections
 
@@ -49,7 +49,7 @@ impl BVH {
         let mut nodes = vec![BVHNode::default(); indices.len() * 2 - 1];
         let mut node_count = 1;
 
-        let mut root = &mut nodes[0];
+        let root = &mut nodes[0];
         root.set_first_triangle_index(0);
         root.set_triangle_count(indices.len() as u32);
         root.update_aabb(vertices, indices, &indirect_indices);
@@ -58,7 +58,7 @@ impl BVH {
         while !stack.is_empty() {
             // get the next root node
             let node_idx = stack.pop().unwrap();
-            let mut node = &mut nodes[node_idx];
+            let node = &mut nodes[node_idx];
             if node.triangle_count() <= 2 {
                 continue;
             }
@@ -119,6 +119,13 @@ impl BVH {
         Self {
             nodes,
             indirect_indices,
+        }
+    }
+
+    pub fn get_reference(&self) -> BVHReference {
+        BVHReference {
+            nodes: self.nodes.as_slice(),
+            indirect_indices: self.indirect_indices.as_slice(),
         }
     }
 }
