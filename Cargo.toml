@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 shared_structs = { path = "shared_structs" }
+compute = { path = "kernels/compute" }
 bytemuck = { version = "1.13.1", features = ["derive"] }
 glam = { version = "0.22.0", features = ["bytemuck"] }
 gpgpu = { version = "0.2.0", features = ["image", "integrate-image"] }
@@ -24,6 +25,3 @@ spirv-builder = "0.7.0"
 
 [features]
 oidn = ["dep:oidn"]
-
-[profile.dev.package."*"]
-opt-level = 3

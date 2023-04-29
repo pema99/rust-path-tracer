@@ -2,7 +2,8 @@
 
 use bsdf::BSDF;
 use glam::*;
-use shared_structs::TracingConfig;
+use intersection::BVHReference;
+use shared_structs::{TracingConfig, BVHNode};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam, spirv};
@@ -151,6 +152,8 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] vertex_buffer: &[Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] normal_buffer: &[Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] nodes_buffer: &[BVHNode],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] indirect_indices_buffer: &[u32],
 ) {
     let index = (id.y * config.width + id.x) as usize;
 
@@ -174,13 +177,16 @@ pub fn main_material(
     let mut ray_origin = Vec3::new(0.0, 1.0, -5.0);
     let mut ray_direction = Vec3::new(uv.x, uv.y, 1.0).normalize();
 
+    let bvh = BVHReference {
+        nodes: nodes_buffer,
+        indirect_indices: indirect_indices_buffer,
+    };
+
     let mut throughput = Vec3::ONE;
     for _ in 0..4 {
-        let trace_result = trace_slow_as_shit(vertex_buffer, index_buffer, ray_origin, ray_direction);
+        let trace_result = bvh.intersect(vertex_buffer, index_buffer, ray_origin, ray_direction);
+        //let trace_result = trace_slow_as_shit(vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
-        //let dist = march(ray_origin, ray_direction);
-        //let hit = ray_origin + ray_direction * dist;
-
 
         if !trace_result.hit {
             // skybox

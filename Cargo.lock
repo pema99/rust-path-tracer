@@ -340,6 +340,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
+name = "compute"
+version = "0.1.0"
+dependencies = [
+ "shared_structs",
+ "spirv-std",
+]
+
+[[package]]
 name = "copyless"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -805,6 +813,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12f597d56c1bd55a811a1be189459e8fad2bbc272616375602443bdfb37fa774"
 dependencies = [
  "bytemuck",
+ "num-traits",
 ]
 
 [[package]]
@@ -1911,6 +1920,7 @@ name = "rustic"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "compute",
  "glam",
  "glium",
  "gnuplot",
@@ -2177,6 +2187,37 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "spirv-std"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19bd20655904cb6136aeb82da8fd21bcc0ffca973d2794da8acc530efd66b854"
+dependencies = [
+ "bitflags",
+ "glam",
+ "num-traits",
+ "spirv-std-macros",
+ "spirv-std-types",
+]
+
+[[package]]
+name = "spirv-std-macros"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16e4c2790b4cac7b2f81037c3108e81aecd7713a975ded4f400a1b05fe4168dd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "spirv-std-types",
+ "syn 1.0.75",
+]
+
+[[package]]
+name = "spirv-std-types"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8f7324f64b41beeaae97030f6128ad72747466b4c03459c3714adb84bc6f63"
 
 [[package]]
 name = "spirv-tools"

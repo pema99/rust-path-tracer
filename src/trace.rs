@@ -1,11 +1,11 @@
 const KERNEL: &[u8] = include_bytes!(env!("compute.spv"));
 
 lazy_static::lazy_static! {
-    static ref FW: gpgpu::Framework = gpgpu::Framework::default();
+    pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
 }
 
 use glam::{UVec2, UVec4, Vec4};
-use gnuplot::{AutoOption, AxesCommon, Coordinate::Graph, Figure, PlotOption::Caption};
+use gnuplot::{AutoOption, AxesCommon, Coordinate::Graph, Figure, PlotOption::{Caption, self}};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
@@ -34,7 +34,9 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(output_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(&world.vertex_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.normal_buffer, GpuBufferUsage::ReadOnly);
+            .bind_buffer(&world.normal_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.bvh.indirect_indices_buffer, GpuBufferUsage::ReadOnly);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
@@ -53,9 +55,13 @@ fn denoise_image(config: &TracingConfig, input: &mut [f32]) {
 }
 
 struct World<'fw> {
+    vertices: Vec<Vec4>,
+    indices: Vec<UVec4>,
+    normals: Vec<Vec4>,
     vertex_buffer: GpuBuffer<'fw, Vec4>,
     index_buffer: GpuBuffer<'fw, UVec4>,
     normal_buffer: GpuBuffer<'fw, Vec4>,
+    bvh: BVH<'fw>,
 }
 
 impl<'fw> World<'fw> {
@@ -136,13 +142,38 @@ impl<'fw> World<'fw> {
             );
         }
 
-        fg.show().unwrap();
-        */
+        for tri in indices {
+            let v0 = vertices[tri.x as usize];
+            let v1 = vertices[tri.y as usize];
+            let v2 = vertices[tri.z as usize];
+            let points = vec![
+                (v0.x, v0.y, v0.z),
+                (v1.x, v1.y, v1.z),
+                (v2.x, v2.y, v2.z),
+                (v0.x, v0.y, v0.z),
+            ];
+            ax.lines(
+                points.iter().map(|(x, y, z)| *x),
+                points.iter().map(|(x, y, z)| *y),
+                points.iter().map(|(x, y, z)| *z),
+                &[PlotOption::Color("#FF0000")],
+            );
+        }
 
+        fg.show().unwrap();
+        std::process::exit(0);*/
+
+        let vertex_buffer = GpuBuffer::from_slice(&FW, &vertices);
+        let index_buffer = GpuBuffer::from_slice(&FW, &indices);
+        let normal_buffer = GpuBuffer::from_slice(&FW, &normals);
         Self {
-            vertex_buffer: GpuBuffer::from_slice(&FW, &vertices),
-            index_buffer: GpuBuffer::from_slice(&FW, &indices),
-            normal_buffer: GpuBuffer::from_slice(&FW, &normals),
+            vertices,
+            indices,
+            normals,
+            vertex_buffer,
+            index_buffer,
+            normal_buffer,
+            bvh,
         }
     }
 }

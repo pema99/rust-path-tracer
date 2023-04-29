@@ -1,8 +1,16 @@
 use spirv_std::glam::{UVec2, Vec2};
 
+#[cfg(target_arch = "spirv")]
 pub fn pcg_hash(input: u32) -> u32 {
     let state = input * 747796405u32 + 2891336453u32;
     let word = ((state >> ((state >> 28u32) + 4u32)) ^ state) * 277803737u32;
+    (word >> 22u32) ^ word
+}
+
+#[cfg(not(target_arch = "spirv"))]
+pub fn pcg_hash(input: u32) -> u32 {
+    let state = input.overflowing_mul(747796405u32).0.overflowing_add(2891336453u32).0;
+    let word = ((state >> ((state >> 28u32) + 4u32)) ^ state).overflowing_mul(277803737u32).0;
     (word >> 22u32) ^ word
 }
 

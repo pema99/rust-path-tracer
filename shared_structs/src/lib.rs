@@ -73,8 +73,3 @@ impl BVHNode {
         self.aabb_max.z = aabb_max.z;
     }
 }
-
-pub struct BVHReference<'a> {
-    pub nodes: &'a [BVHNode],
-    pub indirect_indices: &'a [u32],
-}

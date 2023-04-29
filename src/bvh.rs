@@ -1,5 +1,8 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
-use shared_structs::{BVHNode, BVHReference};
+use gpgpu::{GpuBuffer, BufOps};
+use shared_structs::{BVHNode};
+
+use crate::trace::FW;
 
 // TODO: Use triangle buffer directly instead of 2 indirections
 
@@ -28,13 +31,15 @@ impl BVHNodeExtensions for BVHNode {
     }
 }
 
-pub struct BVH {
+pub struct BVH<'fw> {
     pub nodes: Vec<BVHNode>,
     pub indirect_indices: Vec<u32>,
+    pub nodes_buffer: GpuBuffer<'fw, BVHNode>,
+    pub indirect_indices_buffer: GpuBuffer<'fw, u32>,
 }
 
-impl BVH {
-    pub fn build(vertices: &[Vec4], indices: &[UVec4]) -> BVH {
+impl<'fw> BVH<'fw> {
+    pub fn build(vertices: &[Vec4], indices: &[UVec4]) -> BVH<'fw> {
         let mut indirect_indices: Vec<u32> = (0..indices.len() as u32).collect();
         let centroids = indices
             .iter()
@@ -115,17 +120,14 @@ impl BVH {
             stack.push(left_idx);
         }
 
-        nodes.truncate(node_count - 1);
+        nodes.truncate(node_count);
+        let nodes_buffer = GpuBuffer::from_slice(&FW, &nodes);
+        let indirect_indices_buffer = GpuBuffer::from_slice(&FW, &indirect_indices);
         Self {
             nodes,
             indirect_indices,
-        }
-    }
-
-    pub fn get_reference(&self) -> BVHReference {
-        BVHReference {
-            nodes: self.nodes.as_slice(),
-            indirect_indices: self.indirect_indices.as_slice(),
+            nodes_buffer,
+            indirect_indices_buffer,
         }
     }
 }

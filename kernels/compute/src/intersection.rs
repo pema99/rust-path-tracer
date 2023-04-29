@@ -1,4 +1,4 @@
-use shared_structs::BVHReference;
+use shared_structs::{BVHNode};
 use spirv_std::num_traits::Float;
 use spirv_std::glam::{UVec4, Vec4, Vec3, Vec4Swizzles};
 
@@ -51,10 +51,10 @@ fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f3
     return true;
 }
 
-struct TraceResult {
-    t: f32,
-    triangle: UVec4,
-    hit: bool,
+pub struct TraceResult {
+    pub t: f32,
+    pub triangle: UVec4,
+    pub hit: bool,
 }
 
 impl Default for TraceResult {
@@ -94,7 +94,7 @@ fn intersect_aabb(aabb_min: Vec3, aabb_max: Vec3, ro: Vec3, rd: Vec3) -> bool {
     let tx1 = (aabb_min.x - ro.x) / rd.x; 
     let tx2 = (aabb_max.x - ro.x) / rd.x;
     let mut tmin = tx1.min(tx2);
-    let mut tmax = tx1.min(tx2);
+    let mut tmax = tx1.max(tx2);
     let ty1 = (aabb_min.y - ro.y) / rd.y;
     let ty2 = (aabb_max.y - ro.y) / rd.y;
     tmin = tmin.max(ty1.min(ty2));
@@ -112,22 +112,22 @@ fn intersect_aabb(aabb_min: Vec3, aabb_max: Vec3, ro: Vec3, rd: Vec3) -> bool {
     }
 }
 
-trait BVHReferenceExtensions {
-    fn intersect(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult;
+pub struct BVHReference<'a> {
+    pub nodes: &'a [BVHNode],
+    pub indirect_indices: &'a [u32],
 }
 
-impl<'a> BVHReferenceExtensions for BVHReference<'a> {
-    fn intersect(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
-        let node_index = 0;
-        let node = &self.nodes[node_index];
-
-        let mut stack = FixedVec::<usize, 64>::new();
-        stack.push(node_index);
+impl<'a> BVHReference<'a> {
+    pub fn intersect(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
+        let mut stack = FixedVec::<usize, 16>::new();
+        stack.push(0);
 
         let mut result = TraceResult::default();
         while !stack.is_empty() {
+            let node_index = stack.pop().unwrap();
+            let node = &self.nodes[node_index];
             if !intersect_aabb(node.aabb_min(), node.aabb_max(), ro, rd) {
-                return result;
+                continue;
             }
 
             if node.is_leaf() {
