@@ -4,6 +4,7 @@ use spirv_std::num_traits::Float;
 
 pub const EPS: f32 = 0.001;
 
+#[allow(dead_code)]
 pub fn uniform_sample_sphere(r1: f32, r2: f32) -> Vec3 {
     let cos_phi = 2.0 * r1 - 1.0;
     let sin_phi = (1.0 - cos_phi * cos_phi).sqrt();
@@ -11,6 +12,7 @@ pub fn uniform_sample_sphere(r1: f32, r2: f32) -> Vec3 {
     Vec3::new(sin_phi * theta.cos(), cos_phi, sin_phi * theta.cos())
 }
 
+#[allow(dead_code)]
 pub fn uniform_sample_hemisphere(r1: f32, r2: f32) -> Vec3 {
     let sin_theta = (1.0 - r1 * r1).sqrt();
     let phi = 2.0 * core::f32::consts::PI * r2;

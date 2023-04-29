@@ -1,4 +1,5 @@
 use shared_structs::{BVHNode};
+#[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::glam::{UVec4, Vec4, Vec3, Vec4Swizzles};
 
@@ -67,6 +68,7 @@ impl Default for TraceResult {
     }
 }
 
+#[allow(dead_code)]
 fn intersect_slow_as_shit(
     vertex_buffer: &[Vec4],
     index_buffer: &[UVec4],

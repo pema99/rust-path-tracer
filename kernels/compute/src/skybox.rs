@@ -1,4 +1,5 @@
 use spirv_std::glam::{Vec2, Vec3};
+#[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
 // Constants
@@ -13,10 +14,10 @@ const H_RAY: f32 = 8e3;
 const H_MIE: f32 = 12e2;
 const CENTER: Vec3 = Vec3::new(0.0, -EARTH_RADIUS, 0.0); // earth center point
 
-fn escape(p: Vec3, d: Vec3, R: f32) -> f32 {
+fn escape(p: Vec3, d: Vec3, r: f32) -> f32 {
     let v = p - CENTER;
     let b = v.dot(d);
-    let det = b * b - v.dot(v) + R * R;
+    let det = b * b - v.dot(v) + r * r;
     if det < 0.0 {
         return -1.0;
     }
@@ -36,9 +37,9 @@ fn densities_rm(p: Vec3) -> Vec2 {
     Vec2::new(exp_h_ray, exp_h_mie)
 }
 
-fn scatter_depth_int(o: Vec3, d: Vec3, L: f32) -> Vec2 {
+fn scatter_depth_int(o: Vec3, d: Vec3, l: f32) -> Vec2 {
     // Approximate by combining 2 samples
-    densities_rm(o) * (L / 2.) + densities_rm(o + d * L) * (L / 2.)
+    densities_rm(o) * (l / 2.) + densities_rm(o + d * l) * (l / 2.)
 }
 
 fn scatter_in(origin: Vec3, direction: Vec3, depth: f32, steps: u32, sundir: Vec3) -> (Vec3, Vec3) {

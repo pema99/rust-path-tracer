@@ -31,6 +31,7 @@ impl<T: Sized + Default + Copy, const CAPACITY: usize> FixedVec<T, CAPACITY> {
         self.len == 0
     }
 
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.len = 0;
     }

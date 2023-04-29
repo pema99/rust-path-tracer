@@ -55,9 +55,6 @@ fn denoise_image(config: &TracingConfig, input: &mut [f32]) {
 }
 
 struct World<'fw> {
-    vertices: Vec<Vec4>,
-    indices: Vec<UVec4>,
-    normals: Vec<Vec4>,
     vertex_buffer: GpuBuffer<'fw, Vec4>,
     index_buffer: GpuBuffer<'fw, UVec4>,
     normal_buffer: GpuBuffer<'fw, Vec4>,
@@ -167,9 +164,6 @@ impl<'fw> World<'fw> {
         let index_buffer = GpuBuffer::from_slice(&FW, &indices);
         let normal_buffer = GpuBuffer::from_slice(&FW, &normals);
         Self {
-            vertices,
-            indices,
-            normals,
             vertex_buffer,
             index_buffer,
             normal_buffer,
