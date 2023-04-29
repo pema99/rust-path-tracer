@@ -13,135 +13,7 @@ mod rng;
 mod util;
 mod intersection;
 mod vec;
-
-fn map(p: Vec3) -> f32 {
-    // metaball
-    let mut d = (p - vec3(-0.4, -0.2, 0.5)).length() - 0.5;
-    d = d.min((p - vec3(-0.7, -0.4, 0.3)).length() - 0.4);
-
-    // ball
-    d = d.min((p - Vec3::new(0.5, -0.2, -0.3)).length() - 0.5);
-
-    // walls
-    d = d.min((p.y + 1.0).abs());
-    d = d.min((p.y - 1.0).abs());
-    d = d.min((p.x + 1.5).abs());
-    d = d.min((p.x - 1.5).abs());
-    d = d.min((p.z + 3.5).abs());
-    d = d.min((p.z - 2.0).abs());
-
-    d
-}
-
-fn normal(p: Vec3) -> Vec3 {
-    let h = Vec2::new(0.0, 0.0001);
-    Vec3::new(
-        map(p + h.yxx()) - map(p - h.yxx()),
-        map(p + h.xyx()) - map(p - h.xyx()),
-        map(p + h.xxy()) - map(p - h.xxy()),
-    )
-    .normalize()
-}
-
-fn march(ro: Vec3, rd: Vec3) -> f32 {
-    let mut t = 0.0;
-    for _ in 0..128 {
-        let d = map(ro + rd * t);
-        if d < 0.001 {
-            return t;
-        }
-        t += d;
-    }
-    -1.0
-}
-
-// Adapted from raytri.c
-fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f32) -> bool
-{
-    *out_t = 0.0;
-
-    let edge1 = b - a;
-    let edge2 = c - a;
- 
-    // begin calculating determinant - also used to calculate U parameter
-    let pv = rd.cross(edge2);
- 
-    // if determinant is near zero, ray lies in plane of triangle
-    let det = edge1.dot(pv);
- 
-    if det.abs() < 1e-6 {
-        return false;
-    }
- 
-    let inv_det = 1.0 / det;
- 
-    // calculate distance from vert0 to ray origin
-    let tv = ro - a;
- 
-    // calculate U parameter and test bounds
-    let u = tv.dot(pv) * inv_det;
-    if u < 0.0 || u > 1.0 {
-        return false;
-    }
- 
-    // prepare to test V parameter
-    let qv = tv.cross(edge1);
- 
-    // calculate V parameter and test bounds
-    let v = rd.dot(qv) * inv_det;
-    if v < 0.0 || u + v > 1.0 {
-        return false;
-    }
- 
-    let t = edge2.dot(qv) * inv_det;
-    if t < 0.0 {
-        return false;
-    }
-    *out_t = t;
- 
-    return true;
-}
-
-const MAX_DIST: f32 = 1000000.0;
-
-struct TraceResult {
-    t: f32,
-    triangle: UVec4,
-    hit: bool,
-}
-
-impl Default for TraceResult {
-    fn default() -> Self {
-        Self {
-            t: 1000000.0,
-            triangle: UVec4::splat(0),
-            hit: false,
-        }
-    }
-}
-
-fn trace_slow_as_shit(
-    vertex_buffer: &[Vec4],
-    index_buffer: &[UVec4],
-    ro: Vec3,
-    rd: Vec3
-) -> TraceResult {
-    let mut result = TraceResult::default();
-    for i in 0..index_buffer.len() {
-        let triangle = index_buffer[i];
-        let a = vertex_buffer[triangle.x as usize].xyz();
-        let b = vertex_buffer[triangle.y as usize].xyz();
-        let c = vertex_buffer[triangle.z as usize].xyz();
-
-        let mut t = 0.0;
-        if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
-            result.t = result.t.min(t);
-            result.triangle = triangle;
-            result.hit = true;
-        }
-    }
-    result
-}
+mod skybox;
 
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn main_material(
@@ -190,7 +62,7 @@ pub fn main_material(
 
         if !trace_result.hit {
             // skybox
-            output[index] += (throughput * Vec3::ONE).extend(1.0);
+            output[index] += (throughput * skybox::scatter(ray_origin, ray_direction)).extend(1.0);
             return;
         } else {
             let norm_a = normal_buffer[trace_result.triangle.x as usize].xyz();
