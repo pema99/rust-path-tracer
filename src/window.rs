@@ -1,16 +1,13 @@
+use egui_glium::egui_winit::egui;
 use glium::{
     glutin::{
-        dpi::LogicalSize,
-        event::{Event, WindowEvent},
-        event_loop::{ControlFlow, EventLoop},
-        window::WindowBuilder,
-        ContextBuilder,
+        event::WindowEvent,
+        self,
     },
     index::NoIndices,
     texture::{buffer_texture::{BufferTexture, BufferTextureType}},
     uniform, Display, Surface, VertexBuffer,
 };
-use imgui_winit_support::WinitPlatform;
 use std::{sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
@@ -75,117 +72,6 @@ impl AppState {
     }
 }
 
-pub fn open_window() {
-    let (event_loop, display) = create_window();
-    let (mut winit_platform, mut imgui_context) = imgui_init(&display);
-
-    let mut renderer = imgui_glium_renderer::Renderer::init(&mut imgui_context, &display)
-        .expect("Failed to initialize renderer");
-
-    let (vertex_buffer, index_buffer, program) = setup_program(&display);
-    let mut app_state = AppState::new(&display);
-
-    let mut last_frame = std::time::Instant::now();
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::NewEvents(_) => {
-            let now = std::time::Instant::now();
-            imgui_context.io_mut().update_delta_time(now - last_frame);
-            last_frame = now;
-        }
-        Event::MainEventsCleared => {
-            let gl_window = display.gl_window();
-            winit_platform
-                .prepare_frame(imgui_context.io_mut(), gl_window.window())
-                .expect("Failed to prepare frame");
-            gl_window.window().request_redraw();
-        }
-        Event::RedrawRequested(_) => {
-            let ui = imgui_context.frame();
-
-            ui.window("Settings")
-                .size([320.0, 130.0], imgui::Condition::Appearing)
-                .build(|| {
-                    if app_state.running.load(Ordering::Relaxed) {
-                        if ui.button("Stop") {
-                            display.gl_window().window().set_resizable(true);
-                            app_state.running.store(false, Ordering::Relaxed);
-                        }
-                    } else {
-                        if ui.button("Start") {
-                            display.gl_window().window().set_resizable(false);
-                            app_state.initialize_for_new_render(&display);
-                            start_render(&app_state);
-                        }
-                    }
-
-                    #[cfg(feature = "oidn")]
-                    {
-                        let mut denoise_checked = app_state.denoise.load(Ordering::Relaxed);
-                        if ui.checkbox("Denoise", &mut denoise_checked) {
-                            app_state.denoise.store(denoise_checked, Ordering::Relaxed);
-                        }
-                    }
-
-                    {
-                        let mut sync_rate = app_state.sync_rate.load(Ordering::Relaxed);
-                        if ui.slider("Readback rate", 1, 512, &mut sync_rate) {
-                            app_state.sync_rate.store(sync_rate, Ordering::Relaxed);
-                        }
-                    }
-
-                    ui.label_text(
-                        "Current SPP",
-                        &app_state
-                            .samples
-                            .load(Ordering::Relaxed)
-                            .to_string(),
-                    );
-                });
-
-            // Setup for drawing
-            let gl_window = display.gl_window();
-            let mut target = display.draw();
-
-            // Render framebuffer
-            let framebuffer_data = match app_state.framebuffer.lock() {
-                Ok(fb) => fb.to_owned(),
-                Err(_) => panic!(),
-            };
-            app_state.rendertarget.write(&framebuffer_data);
-
-            target
-                .draw(
-                    &vertex_buffer,
-                    &index_buffer,
-                    &program,
-                    &uniform! { 
-                        texture: &app_state.rendertarget,
-                        width: app_state.config.width as f32,
-                        height: app_state.config.height as f32,
-                    },
-                    &Default::default(),
-                )
-                .unwrap();
-
-            // ImGui rendering
-            winit_platform.prepare_render(ui, gl_window.window());
-            let draw_data = imgui_context.render();
-            renderer
-                .render(&mut target, draw_data)
-                .expect("Rendering failed");
-            target.finish().expect("Failed to swap buffers");
-        }
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => *control_flow = ControlFlow::Exit,
-        event => {
-            let gl_window = display.gl_window();
-            winit_platform.handle_event(imgui_context.io_mut(), gl_window.window(), &event);
-        }
-    });
-}
-
 fn start_render(app_state: &AppState) {
     app_state.running.store(true, Ordering::Relaxed);
     let data = app_state.framebuffer.clone();
@@ -197,6 +83,147 @@ fn start_render(app_state: &AppState) {
     std::thread::spawn(move || {
         trace(data, running, samples, denoise, sync_rate, config);
     });
+}
+
+fn on_gui(display: &Display, app_state: &mut AppState, egui_ctx: &egui::Context) {
+    egui::Window::new("Settings").show(egui_ctx, |ui| {
+        if app_state.running.load(Ordering::Relaxed) {
+            if ui.button("Stop").clicked() {
+                display.gl_window().window().set_resizable(true);
+                app_state.running.store(false, Ordering::Relaxed);
+            }
+        } else {
+            if ui.button("Start").clicked() {
+                display.gl_window().window().set_resizable(false);
+                app_state.initialize_for_new_render(&display);
+                start_render(&app_state);
+            }
+        }
+
+        #[cfg(feature = "oidn")]
+        {
+            let mut denoise_checked = app_state.denoise.load(Ordering::Relaxed);
+            if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
+                app_state.denoise.store(denoise_checked, Ordering::Relaxed);
+            }
+        }
+
+        {
+            let mut sync_rate = app_state.sync_rate.load(Ordering::Relaxed);
+            if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed() {
+                app_state.sync_rate.store(sync_rate, Ordering::Relaxed);
+            }
+        }
+
+        ui.label(format!(
+            "Samples: {}",
+            app_state.samples.load(Ordering::Relaxed)
+        ));
+    });
+}
+
+pub fn open_window() {
+    let event_loop = glutin::event_loop::EventLoopBuilder::with_user_event().build();
+    let display = create_display(&event_loop);
+
+    let mut egui_glium = egui_glium::EguiGlium::new(&display, &event_loop);
+
+    let mut app_state = AppState::new(&display);
+    let (vertex_buffer, index_buffer, program) = setup_program(&display);
+
+    // Used to only redraw when something has changed
+    let mut handled_samples = 0;
+
+    event_loop.run(move |event, _, control_flow| {
+        // If samples have gone out of sync, force redraw
+        let current_samples = app_state.samples.load(Ordering::Relaxed);
+        if handled_samples != current_samples {
+            handled_samples = current_samples;
+            display.gl_window().window().request_redraw();
+        }
+
+        let mut redraw = || {
+            let repaint_after = egui_glium.run(&display, |egui_ctx| {
+                on_gui(&display, &mut app_state, egui_ctx);
+            });
+
+            if repaint_after.is_zero() {
+                display.gl_window().window().request_redraw();
+                glutin::event_loop::ControlFlow::Poll
+            } else if let Some(repaint_after_instant) = std::time::Instant::now().checked_add(repaint_after) {
+                glutin::event_loop::ControlFlow::WaitUntil(repaint_after_instant)
+            } else {
+                glutin::event_loop::ControlFlow::Wait
+            };
+
+            {
+                let mut target = display.draw();
+
+                // Readback buffer from compute thread and render it
+                {
+                    let framebuffer_data = match app_state.framebuffer.lock() {
+                        Ok(fb) => fb.to_owned(),
+                        Err(_) => panic!(),
+                    };
+                    app_state.rendertarget.write(&framebuffer_data);
+                    target
+                        .draw(
+                            &vertex_buffer,
+                            &index_buffer,
+                            &program,
+                            &uniform! { 
+                                texture: &app_state.rendertarget,
+                                width: app_state.config.width as f32,
+                                height: app_state.config.height as f32,
+                            },
+                            &Default::default(),
+                        )
+                        .unwrap();
+                }
+
+                egui_glium.paint(&display, &mut target);
+                target.finish().unwrap();
+            }
+        };
+
+        match event {
+            glutin::event::Event::RedrawRequested(_) => redraw(),
+            glutin::event::Event::WindowEvent { event, .. } => {
+                if matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed) {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                }
+
+                let event_response = egui_glium.on_event(&event);
+
+                if event_response.repaint {
+                    display.gl_window().window().request_redraw();
+                }
+            }
+            glutin::event::Event::NewEvents(glutin::event::StartCause::ResumeTimeReached {
+                ..
+            }) => {
+                display.gl_window().window().request_redraw();
+            }
+            _ => (),
+        }
+    });
+}
+
+fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Display {
+    let window_builder = glutin::window::WindowBuilder::new()
+        .with_resizable(true)
+        .with_inner_size(glutin::dpi::LogicalSize {
+            width: 1280.0,
+            height: 720.0,
+        })
+        .with_title("rustic");
+
+    let context_builder = glutin::ContextBuilder::new()
+        .with_depth_buffer(0)
+        .with_stencil_buffer(0)
+        .with_vsync(true);
+
+    glium::Display::new(window_builder, context_builder, event_loop).unwrap()
 }
 
 // Setup vert buffer for a quad
@@ -229,36 +256,4 @@ fn setup_program(display: &Display) -> (VertexBuffer<Vertex>, NoIndices, glium::
     let program = glium::Program::from_source(display, &code_vert, &code_frag, None).unwrap();
 
     (vertex_buffer, indices, program)
-}
-
-fn create_window() -> (EventLoop<()>, Display) {
-    let event_loop = EventLoop::new();
-    let context = ContextBuilder::new().with_vsync(true);
-    let builder = WindowBuilder::new()
-        .with_title("rustic")
-        .with_inner_size(LogicalSize::new(1280f64, 720f64));
-    let display =
-        Display::new(builder, context, &event_loop).expect("Failed to initialize display");
-
-    (event_loop, display)
-}
-
-fn imgui_init(display: &Display) -> (WinitPlatform, imgui::Context) {
-    let mut imgui_context = imgui::Context::create();
-    imgui_context.set_ini_filename(None);
-
-    let mut winit_platform = WinitPlatform::init(&mut imgui_context);
-
-    let gl_window = display.gl_window();
-    let window = gl_window.window();
-
-    let dpi_mode = imgui_winit_support::HiDpiMode::Default;
-
-    winit_platform.attach_window(imgui_context.io_mut(), window, dpi_mode);
-
-    imgui_context
-        .fonts()
-        .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
-
-    (winit_platform, imgui_context)
 }

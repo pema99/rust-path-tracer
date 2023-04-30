@@ -5,7 +5,6 @@ lazy_static::lazy_static! {
 }
 
 use glam::{UVec2, UVec4, Vec4};
-use gnuplot::{AutoOption, AxesCommon, Coordinate::Graph, Figure, PlotOption::{Caption, self}};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
@@ -99,67 +98,6 @@ impl<'fw> World<'fw> {
         let bvh = BVHBuilder::new(&vertices, &indices).sah_samples(128).build();
         println!("BVH build time: {:?}", now.elapsed());
         println!("BVH node count: {}", bvh.nodes.len());
-
-        /*
-        let mut fg = Figure::new();
-        let mut ax = fg
-            .axes3d()
-            .set_title("A plot", &[])
-            .set_x_label("x", &[])
-            .set_y_label("y", &[])
-            .set_z_label("z", &[]);
-
-        for node in bvh.nodes.iter().filter(|x| true) {
-            let min = node.aabb_min();
-            let max = node.aabb_max();
-
-            let points = vec![
-                (min.x, min.y, min.z),
-                (min.x, min.y, max.z),
-                (min.x, max.y, max.z),
-                (min.x, min.y, max.z),
-                (max.x, min.y, max.z),
-                (max.x, max.y, max.z),
-                (max.x, min.y, max.z),
-                (max.x, min.y, min.z),
-                (max.x, max.y, min.z),
-                (max.x, min.y, min.z),
-                (min.x, min.y, min.z),
-                (min.x, max.y, min.z),
-                (min.x, max.y, max.z),
-                (max.x, max.y, max.z),
-                (max.x, max.y, min.z),
-                (min.x, max.y, min.z),
-            ];
-            // draw a wireframe cube out of lines:
-            ax.lines(
-                points.iter().map(|(x, y, z)| *x),
-                points.iter().map(|(x, y, z)| *y),
-                points.iter().map(|(x, y, z)| *z),
-                &[],
-            );
-        }
-
-        for tri in indices {
-            let v0 = vertices[tri.x as usize];
-            let v1 = vertices[tri.y as usize];
-            let v2 = vertices[tri.z as usize];
-            let points = vec![
-                (v0.x, v0.y, v0.z),
-                (v1.x, v1.y, v1.z),
-                (v2.x, v2.y, v2.z),
-                (v0.x, v0.y, v0.z),
-            ];
-            ax.lines(
-                points.iter().map(|(x, y, z)| *x),
-                points.iter().map(|(x, y, z)| *y),
-                points.iter().map(|(x, y, z)| *z),
-                &[PlotOption::Color("#FF0000")],
-            );
-        }
-
-        fg.show().unwrap();
-        std::process::exit(0);*/
 
         let vertex_buffer = GpuBuffer::from_slice(&FW, &vertices);
         let index_buffer = GpuBuffer::from_slice(&FW, &indices);
