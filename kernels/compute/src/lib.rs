@@ -56,7 +56,7 @@ pub fn main_material(
 
     let mut throughput = Vec3::ONE;
     for _ in 0..4 {
-        let trace_result = bvh.intersect(vertex_buffer, index_buffer, ray_origin, ray_direction);
+        let trace_result = bvh.intersect_front_to_back(vertex_buffer, index_buffer, ray_origin, ray_direction);
         //let trace_result = trace_slow_as_shit(vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
 
