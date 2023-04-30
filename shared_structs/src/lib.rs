@@ -12,10 +12,19 @@ pub struct TracingConfig {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable, Default)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BVHNode {
     aabb_min: Vec4, // w = triangle count
     aabb_max: Vec4, // w = left_node if triangle_count is 0, first_triangle_index if triangle_count is 1
+}
+
+impl Default for BVHNode {
+    fn default() -> Self {
+        Self {
+            aabb_min: Vec4::new(f32::INFINITY, f32::INFINITY, f32::INFINITY, 0.0),
+            aabb_max: Vec4::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY, 0.0),
+        }
+    }
 }
 
 impl BVHNode {

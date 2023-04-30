@@ -16,7 +16,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use crate::bvh::BVH;
+use crate::bvh::{BVH, BVHBuilder};
 
 struct PathTracingKernel<'fw>(Kernel<'fw>);
 
@@ -96,8 +96,9 @@ impl<'fw> World<'fw> {
 
         // time the build:
         let now = std::time::Instant::now();
-        let bvh = BVH::build(&vertices, &indices);
+        let bvh = BVHBuilder::new(&vertices, &indices).sah_samples(128).build();
         println!("BVH build time: {:?}", now.elapsed());
+        println!("BVH node count: {}", bvh.nodes.len());
 
         /*
         let mut fg = Figure::new();
