@@ -176,8 +176,9 @@ impl<'fw> World<'fw> {
 pub fn trace(
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
-    samples_readback: Arc<AtomicU32>,
+    samples: Arc<AtomicU32>,
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
+    sync_rate: Arc<AtomicU32>,
     config: TracingConfig,
 ) {
     let world = World::from_path("scene.blend");
@@ -201,51 +202,30 @@ pub fn trace(
 
     let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
 
-    let samples = Arc::new(AtomicU32::new(0));
-    {
-        #[allow(unused_variables)]
-        let config = config.clone();
-        let samples = samples.clone();
-        let samples_readback = samples_readback.clone();
-        let running = running.clone();
-        std::thread::spawn(move || {
-            while running.load(Ordering::Relaxed) {
-                let sample_count = samples.load(Ordering::Relaxed) as f32;
-
-                output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
-                for (i, col) in image_buffer_raw.iter().enumerate() {
-                    image_buffer[i * 3 + 0] = col.x / sample_count;
-                    image_buffer[i * 3 + 1] = col.y / sample_count;
-                    image_buffer[i * 3 + 2] = col.z / sample_count;
-                }
-
-                #[cfg(feature = "oidn")]
-                if denoise.load(Ordering::Relaxed) {
-                    denoise_image(&config, &mut image_buffer);
-                }
-
-                // Readback
-                match framebuffer.lock() {
-                    Ok(mut fb) => {
-                        fb.copy_from_slice(image_buffer.as_slice());
-                    }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                    }
-                }
-                samples_readback.store(sample_count as u32, Ordering::Relaxed);
-            }
-        });
-    }
-
     while running.load(Ordering::Relaxed) {
-        rt.0.enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
-        samples.fetch_add(1, Ordering::Relaxed);
+        let sync_rate = sync_rate.load(Ordering::Relaxed);
+        for _ in 0..sync_rate {
+            rt.0.enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
+        }
+        samples.fetch_add(sync_rate, Ordering::Relaxed);
 
-        // If we're scheduling too much work, and the readback thread can't keep up,
-        // yield for a bit to let it catch up.
-        while samples.load(Ordering::Relaxed) - samples_readback.load(Ordering::Relaxed) > 128 {
-            std::thread::yield_now();
+        output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
+        let sample_count = samples.load(Ordering::Relaxed) as f32;
+        for (i, col) in image_buffer_raw.iter().enumerate() {
+            image_buffer[i * 3 + 0] = col.x / sample_count;
+            image_buffer[i * 3 + 1] = col.y / sample_count;
+            image_buffer[i * 3 + 2] = col.z / sample_count;
+        }
+
+        #[cfg(feature = "oidn")]
+        if denoise.load(Ordering::Relaxed) {
+            denoise_image(&config, &mut image_buffer);
+        }
+
+        // Readback
+        match framebuffer.lock() {
+            Ok(mut fb) => fb.copy_from_slice(image_buffer.as_slice()),
+            Err(_) => {},
         }
     }
 }

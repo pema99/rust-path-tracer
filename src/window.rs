@@ -7,50 +7,43 @@ use glium::{
         ContextBuilder,
     },
     index::NoIndices,
-    texture::{MipmapsOption, RawImage2d, UncompressedFloatFormat},
-    uniform, Display, Rect, Surface, Texture2d, VertexBuffer,
+    texture::{buffer_texture::{BufferTexture, BufferTextureType}},
+    uniform, Display, Surface, VertexBuffer,
 };
 use imgui_winit_support::WinitPlatform;
-use std::sync::{
+use std::{sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
-};
+}};
 
 use crate::trace::{trace, TracingConfig};
 
 struct AppState {
-    rendertarget: Texture2d,
+    rendertarget: BufferTexture<f32>,
     framebuffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
-    samples_readback: Arc<AtomicU32>,
+    samples: Arc<AtomicU32>,
     denoise: Arc<AtomicBool>,
+    sync_rate: Arc<AtomicU32>,
     config: TracingConfig,
 }
 
 fn make_view_dependent_state(
     display: &Display,
     config: Option<TracingConfig>,
-) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, Texture2d) {
+) -> (TracingConfig, Arc<Mutex<Vec<f32>>>, BufferTexture<f32>) {
     let inner_size = display.get_framebuffer_dimensions();
     let config = TracingConfig {
         width: inner_size.0,
         height: inner_size.1,
         ..config.unwrap_or_default()
     };
+    let data_size = config.width as usize * config.height as usize * 3;
     let framebuffer = Arc::new(Mutex::new(vec![
         0.0;
-        config.width as usize
-            * config.height as usize
-            * 3
+        data_size
     ]));
-    let rendertarget = Texture2d::empty_with_format(
-        display,
-        UncompressedFloatFormat::F32F32F32,
-        MipmapsOption::NoMipmap,
-        config.width,
-        config.height,
-    )
-    .unwrap();
+    let rendertarget = BufferTexture::empty(display, data_size, BufferTextureType::Float).unwrap();
     (config, framebuffer, rendertarget)
 }
 
@@ -58,14 +51,16 @@ impl AppState {
     fn new(display: &Display) -> Self {
         let (config, framebuffer, rendertarget) = make_view_dependent_state(display, None);
         let running = Arc::new(AtomicBool::new(false));
-        let denoise = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(AtomicU32::new(0));
+        let denoise = Arc::new(AtomicBool::new(false));
+        let sync_rate = Arc::new(AtomicU32::new(128));
         Self {
             rendertarget,
             framebuffer,
             running,
-            samples_readback: samples,
+            samples,
             denoise,
+            sync_rate,
             config,
         }
     }
@@ -76,7 +71,7 @@ impl AppState {
         self.config = config;
         self.framebuffer = framebuffer;
         self.rendertarget = rendertarget;
-        self.samples_readback.store(0, Ordering::Relaxed);
+        self.samples.store(0, Ordering::Relaxed);
     }
 }
 
@@ -108,7 +103,7 @@ pub fn open_window() {
             let ui = imgui_context.frame();
 
             ui.window("Settings")
-                .size([200.0, 120.0], imgui::Condition::Appearing)
+                .size([320.0, 130.0], imgui::Condition::Appearing)
                 .build(|| {
                     if app_state.running.load(Ordering::Relaxed) {
                         if ui.button("Stop") {
@@ -131,45 +126,43 @@ pub fn open_window() {
                         }
                     }
 
+                    {
+                        let mut sync_rate = app_state.sync_rate.load(Ordering::Relaxed);
+                        if ui.slider("Readback rate", 1, 512, &mut sync_rate) {
+                            app_state.sync_rate.store(sync_rate, Ordering::Relaxed);
+                        }
+                    }
+
                     ui.label_text(
+                        "Current SPP",
                         &app_state
-                            .samples_readback
+                            .samples
                             .load(Ordering::Relaxed)
                             .to_string(),
-                        "Current SPP",
                     );
                 });
 
             // Setup for drawing
             let gl_window = display.gl_window();
             let mut target = display.draw();
-            target.clear_color_srgb(1.0, 1.0, 1.0, 1.0);
 
             // Render framebuffer
-            match app_state.framebuffer.lock() {
-                Ok(fb) => {
-                    let glium_image = RawImage2d::from_raw_rgb(
-                        fb.to_vec(),
-                        (app_state.config.width, app_state.config.height),
-                    );
-                    app_state.rendertarget.write(
-                        Rect {
-                            left: 0,
-                            bottom: 0,
-                            width: app_state.config.width,
-                            height: app_state.config.height,
-                        },
-                        glium_image,
-                    );
-                }
-                Err(_) => {}
-            }
+            let framebuffer_data = match app_state.framebuffer.lock() {
+                Ok(fb) => fb.to_owned(),
+                Err(_) => panic!(),
+            };
+            app_state.rendertarget.write(&framebuffer_data);
+
             target
                 .draw(
                     &vertex_buffer,
                     &index_buffer,
                     &program,
-                    &uniform! { texture: &app_state.rendertarget },
+                    &uniform! { 
+                        texture: &app_state.rendertarget,
+                        width: app_state.config.width as f32,
+                        height: app_state.config.height as f32,
+                    },
                     &Default::default(),
                 )
                 .unwrap();
@@ -197,11 +190,12 @@ fn start_render(app_state: &AppState) {
     app_state.running.store(true, Ordering::Relaxed);
     let data = app_state.framebuffer.clone();
     let running = app_state.running.clone();
-    let samples_readback = app_state.samples_readback.clone();
+    let samples = app_state.samples.clone();
     let denoise = app_state.denoise.clone();
+    let sync_rate = app_state.sync_rate.clone();
     let config = app_state.config.clone();
     std::thread::spawn(move || {
-        trace(data, running, samples_readback, denoise, config);
+        trace(data, running, samples, denoise, sync_rate, config);
     });
 }
 
@@ -241,7 +235,7 @@ fn create_window() -> (EventLoop<()>, Display) {
     let event_loop = EventLoop::new();
     let context = ContextBuilder::new().with_vsync(true);
     let builder = WindowBuilder::new()
-        .with_title("rust-pt-electric-boogaloo")
+        .with_title("rustic")
         .with_inner_size(LogicalSize::new(1280f64, 720f64));
     let display =
         Display::new(builder, context, &event_loop).expect("Failed to initialize display");
