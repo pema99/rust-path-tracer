@@ -12,13 +12,9 @@ glam = { version = "0.22.0", features = ["bytemuck"] }
 gpgpu = { version = "0.2.0", features = ["image", "integrate-image"] }
 rand = "0.8.5"
 oidn = { version = "1.4.3", optional = true }
-imgui = "0.11.0"
 glium = "0.32.1"
-imgui-glium-renderer = "0.11.0"
-imgui-winit-support = "0.11.0"
 lazy_static = "1.4.0"
 russimp = { version = "2.0.4", features = ["prebuilt"] }
-gnuplot = "0.0.37"
 egui_glium = "0.20.1"
 egui = "0.20.1"
 

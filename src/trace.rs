@@ -4,11 +4,11 @@ lazy_static::lazy_static! {
     pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
 }
 
-use glam::{UVec2, UVec4, Vec4};
+use glam::{UVec2, UVec4, Vec4, Mat4};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
 };
-use russimp::scene::{PostProcess::*, Scene};
+use russimp::{scene::{PostProcess::*, Scene}, node::Node};
 pub use shared_structs::TracingConfig;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -69,7 +69,6 @@ impl<'fw> World<'fw> {
                 Triangulate,
                 SortByPrimitiveType,
                 GenerateSmoothNormals,
-                PreTransformVertices,
                 GenerateUVCoords,
                 TransformUVCoords,
             ],
@@ -80,17 +79,39 @@ impl<'fw> World<'fw> {
         let mut indices = Vec::new();
         let mut normals = Vec::new();
 
-        for (idx, mesh) in blend.meshes.iter().enumerate() {
-            for v in &mesh.vertices {
-                vertices.push(Vec4::new(v.x, v.z, v.y, 0.0));
+        fn walk_node_graph(scene: &Scene, node: &Node, trs: Mat4, vertices: &mut Vec<Vec4>, indices: &mut Vec<UVec4>, normals: &mut Vec<Vec4>) {
+            let node_trs = Mat4::from_cols_array_2d(&[
+                [node.transformation.a1, node.transformation.b1, node.transformation.c1, node.transformation.d1],
+                [node.transformation.a2, node.transformation.b2, node.transformation.c2, node.transformation.d2],
+                [node.transformation.a3, node.transformation.b3, node.transformation.c3, node.transformation.d3],
+                [node.transformation.a4, node.transformation.b4, node.transformation.c4, node.transformation.d4],
+            ]);
+            let new_trs = node_trs * trs;
+
+            for mesh_idx in node.meshes.iter() {
+                let mesh = &scene.meshes[*mesh_idx as usize];
+                let triangle_offset = vertices.len() as u32;
+                for v in &mesh.vertices {
+                    let vert = new_trs.mul_vec4(Vec4::new(v.x, v.y, v.z, 1.0));
+                    vertices.push(Vec4::new(vert.x, vert.z, vert.y, 1.0));
+                }
+                for f in &mesh.faces {
+                    assert_eq!(f.0.len(), 3);
+                    indices.push(UVec4::new(triangle_offset + f.0[0], triangle_offset + f.0[2], triangle_offset + f.0[1], *mesh_idx as u32));
+                }
+                for n in &mesh.normals {
+                    let norm = new_trs.mul_vec4(Vec4::new(n.x, n.y, n.z, 0.0)).normalize();
+                    normals.push(Vec4::new(norm.x, norm.z, norm.y, 0.0));
+                }
             }
-            for f in &mesh.faces {
-                assert_eq!(f.0.len(), 3);
-                indices.push(UVec4::new(f.0[0], f.0[2], f.0[1], idx as u32));
+
+            for child in node.children.borrow().iter() {
+                walk_node_graph(scene, &child, new_trs, vertices, indices, normals);
             }
-            for n in &mesh.normals {
-                normals.push(Vec4::new(n.x, n.z, n.y, 0.0));
-            }
+        }
+
+        if let Some(root) = blend.root.as_ref() {
+            walk_node_graph(&blend, root, Mat4::IDENTITY, &mut vertices, &mut indices, &mut normals);
         }
 
         // time the build:
