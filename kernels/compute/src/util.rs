@@ -91,3 +91,18 @@ pub fn geometry_smith(
 pub fn fresnel_schlick(cos_theta: f32, f0: Vec3) -> Vec3 {
     f0 + (Vec3::ONE - f0) * (1.0 - cos_theta).powi(5)
 }
+
+pub fn barycentric(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let v0 = b - a;
+    let v1 = c - a;
+    let v2 = p - a;
+    let d00 = v0.dot(v0);
+    let d01 = v0.dot(v1);
+    let d11 = v1.dot(v1);
+    let d20 = v2.dot(v0);
+    let d21 = v2.dot(v1);
+    let denom = d00 * d11 - d01 * d01;
+    let v = (d11 * d20 - d01 * d21) / denom;
+    let w = (d00 * d21 - d01 * d20) / denom;
+    Vec3::new(1.0 - v - w, v, w)
+}

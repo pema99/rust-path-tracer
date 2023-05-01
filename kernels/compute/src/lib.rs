@@ -68,7 +68,11 @@ pub fn main_material(
             let norm_a = normal_buffer[trace_result.triangle.x as usize].xyz();
             let norm_b = normal_buffer[trace_result.triangle.y as usize].xyz();
             let norm_c = normal_buffer[trace_result.triangle.z as usize].xyz();
-            let norm = (norm_a + norm_b + norm_c) / 3.0; // flat shading
+            let vert_a = vertex_buffer[trace_result.triangle.x as usize].xyz();
+            let vert_b = vertex_buffer[trace_result.triangle.y as usize].xyz();
+            let vert_c = vertex_buffer[trace_result.triangle.z as usize].xyz();
+            let bary = util::barycentric(hit, vert_a, vert_b, vert_c);
+            let norm = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
 
             let albedo = norm * 0.5 + 0.5;
             let bsdf = bsdf::PBR {
