@@ -1,3 +1,4 @@
+use glam::Vec4;
 use image::{DynamicImage, GenericImage};
 
 #[derive(Clone, Copy)]
@@ -6,6 +7,17 @@ pub struct PackingRect {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+}
+
+impl PackingRect {
+    pub fn to_uvst(&self, atlas_width: u32, atlas_height: u32) -> Vec4 {
+        Vec4::new(
+            self.x as f32 / atlas_width as f32,
+            self.y as f32 / atlas_width as f32,
+            self.width as f32 / atlas_width as f32,
+            self.height as f32 / atlas_height as f32,
+        )
+    }
 }
 
 struct PackingTreeNode {
@@ -105,7 +117,7 @@ impl PackingTreeNode {
     }
 }
 
-pub fn pack_textures(textures: &[DynamicImage], atlas_width: u32, atlas_height: u32) -> (DynamicImage, Vec<PackingRect>) {
+pub fn pack_textures(textures: &[DynamicImage], atlas_width: u32, atlas_height: u32) -> (DynamicImage, Vec<Vec4>) {
     let mut root = PackingTreeNode::new(PackingRect {
         x: 0,
         y: 0,
@@ -134,10 +146,11 @@ pub fn pack_textures(textures: &[DynamicImage], atlas_width: u32, atlas_height: 
     for (i, leaf) in leafs.iter().enumerate() {
         let tex = &textures[i];
         let resized_tex = tex.resize_exact(leaf.width, leaf.height, image::imageops::FilterType::Gaussian);
-        atlas.copy_from(&resized_tex, leaf.x, leaf.y).unwrap();
+        atlas.copy_from(&resized_tex.flipv(), leaf.x, leaf.y).unwrap();
     }
 
-    (atlas, leafs)
+    let sts = leafs.iter().map(|x| x.to_uvst(atlas_width, atlas_height)).collect::<Vec<_>>();
+    (atlas, sts)
 }
 
 

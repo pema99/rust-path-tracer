@@ -1,15 +1,18 @@
-use glam::{UVec4, Vec4, Mat4};
-use gpgpu::{GpuBuffer, BufOps};
+use glam::{UVec4, Vec4, Mat4, Vec2};
+use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material}};
+use shared_structs::{MaterialData, PerVertexData};
 
 use crate::{bvh::{BVH, BVHBuilder}, trace::FW};
 
 pub struct World<'fw> {
-    pub vertex_buffer: GpuBuffer<'fw, Vec4>,
+    pub per_vertex_buffer: GpuBuffer<'fw, PerVertexData>,
     pub index_buffer: GpuBuffer<'fw, UVec4>,
-    pub normal_buffer: GpuBuffer<'fw, Vec4>,
     pub bvh: BVH<'fw>,
+
+    pub albedo_atlas: GpuConstImage<'fw, Rgba8UintNorm>,
+    pub material_data_buffer: GpuBuffer<'fw, MaterialData>,    
 }
 
 fn convert_texture(texture: &Texture) -> Option<DynamicImage> {
@@ -51,8 +54,9 @@ impl<'fw> World<'fw> {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut normals = Vec::new();
+        let mut uvs = Vec::new();
 
-        fn walk_node_graph(scene: &Scene, node: &Node, trs: Mat4, vertices: &mut Vec<Vec4>, indices: &mut Vec<UVec4>, normals: &mut Vec<Vec4>) {
+        fn walk_node_graph(scene: &Scene, node: &Node, trs: Mat4, vertices: &mut Vec<Vec4>, indices: &mut Vec<UVec4>, normals: &mut Vec<Vec4>, uvs: &mut Vec<Vec2>) {
             let node_trs = Mat4::from_cols_array_2d(&[
                 [node.transformation.a1, node.transformation.b1, node.transformation.c1, node.transformation.d1],
                 [node.transformation.a2, node.transformation.b2, node.transformation.c2, node.transformation.d2],
@@ -70,33 +74,52 @@ impl<'fw> World<'fw> {
                 }
                 for f in &mesh.faces {
                     assert_eq!(f.0.len(), 3);
-                    indices.push(UVec4::new(triangle_offset + f.0[0], triangle_offset + f.0[2], triangle_offset + f.0[1], *mesh_idx as u32));
+                    indices.push(UVec4::new(triangle_offset + f.0[0], triangle_offset + f.0[2], triangle_offset + f.0[1], mesh.material_index));
                 }
                 for n in &mesh.normals {
                     let norm = new_trs.mul_vec4(Vec4::new(n.x, n.y, n.z, 0.0)).normalize();
                     normals.push(Vec4::new(norm.x, norm.z, norm.y, 0.0));
                 }
+                if let Some(Some(uv_set)) = mesh.texture_coords.iter().next() {
+                    for uv in uv_set {
+                        uvs.push(Vec2::new(uv.x, uv.y));
+                    }
+                } else {
+                    uvs.resize(vertices.len(), Vec2::ZERO);
+                }
             }
 
             for child in node.children.borrow().iter() {
-                walk_node_graph(scene, &child, new_trs, vertices, indices, normals);
+                walk_node_graph(scene, &child, new_trs, vertices, indices, normals, uvs);
             }
         }
 
         if let Some(root) = blend.root.as_ref() {
-            walk_node_graph(&blend, root, Mat4::IDENTITY, &mut vertices, &mut indices, &mut normals);
+            walk_node_graph(&blend, root, Mat4::IDENTITY, &mut vertices, &mut indices, &mut normals, &mut uvs);
         }
 
         // Gather material data
+        let mut material_datas = vec![MaterialData::default(); blend.materials.len()];
+
         let mut albedo_textures = Vec::new();
-        for material in &blend.materials {
+        for (material_index, material) in blend.materials.iter().enumerate() {
+            let current_material_data = &mut material_datas[material_index];
             if let Some(texture) = load_texture(&material, TextureType::Diffuse) {
                 albedo_textures.push(texture);
+                current_material_data.set_has_albedo_texture(true);
             }
         }
 
-        let (atlas, sts) = crate::atlas::pack_textures(&albedo_textures, 1024, 1024);
-        atlas.save("atlas.png").unwrap();
+        let (albedo_atlas_raw, mut albedo_sts) = crate::atlas::pack_textures(&albedo_textures, 1024, 1024);
+        let albedo_atlas = GpuConstImage::from_bytes(&FW, &albedo_atlas_raw.to_rgba8(), 1024, 1024);
+
+        for material_data in material_datas.iter_mut() {
+            if material_data.has_albedo_texture() {
+                material_data.albedo = albedo_sts.remove(0); // TODO: Optimize this
+            }
+        }
+
+        let material_data_buffer = GpuBuffer::from_slice(&FW, &material_datas);
 
         // BVH building
         let now = std::time::Instant::now();
@@ -106,14 +129,23 @@ impl<'fw> World<'fw> {
 
         // TODO: Seperate loading from GPU upload
         // Upload to GPU
-        let vertex_buffer = GpuBuffer::from_slice(&FW, &vertices);
+        let mut per_vertex_data = Vec::new();
+        for i in 0..vertices.len() {
+            per_vertex_data.push(PerVertexData {
+                vertex: vertices[i],
+                normal: normals[i],
+                uv0: uvs[i],
+                ..Default::default()
+            });
+        }
+        let per_vertex_buffer = GpuBuffer::from_slice(&FW, &per_vertex_data);
         let index_buffer = GpuBuffer::from_slice(&FW, &indices);
-        let normal_buffer = GpuBuffer::from_slice(&FW, &normals);
         Self {
-            vertex_buffer,
+            per_vertex_buffer,
             index_buffer,
-            normal_buffer,
             bvh,
+            albedo_atlas,
+            material_data_buffer,
         }
     }
 }

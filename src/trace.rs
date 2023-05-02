@@ -6,7 +6,7 @@ lazy_static::lazy_static! {
 
 use glam::{UVec2, Vec4};
 use gpgpu::{
-    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader,
+    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
 pub use shared_structs::TracingConfig;
 use std::sync::{
@@ -26,15 +26,18 @@ impl<'fw> PathTracingKernel<'fw> {
         world: &World<'fw>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
+        let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
         let bindings = DescriptorSet::default()
             .bind_uniform_buffer(config_buffer)
             .bind_buffer(rng_buffer, GpuBufferUsage::ReadWrite)
             .bind_buffer(output_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&world.vertex_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.per_vertex_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.normal_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.bvh.indirect_indices_buffer, GpuBufferUsage::ReadOnly);
+            .bind_buffer(&world.bvh.indirect_indices_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
+            .bind_sampler(&sampler)
+            .bind_const_image(&world.albedo_atlas);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 

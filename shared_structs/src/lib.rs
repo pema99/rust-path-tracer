@@ -1,7 +1,7 @@
 #![no_std]
 
 use bytemuck::{Pod, Zeroable};
-use glam::{Vec3, Vec4, Vec4Swizzles};
+use glam::{Vec3, Vec4, Vec4Swizzles, Vec2};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
@@ -9,6 +9,33 @@ pub struct TracingConfig {
     pub width: u32,
     pub height: u32,
     pub max_bounces: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+pub struct MaterialData {
+    pub albedo: Vec4, // either albedo color or atlas location
+    has_albedo_texture: u32,
+    _padding: [u32; 3],
+}
+
+impl MaterialData {
+    pub fn has_albedo_texture(&self) -> bool {
+        self.has_albedo_texture != 0
+    }
+
+    pub fn set_has_albedo_texture(&mut self, has_albedo_texture: bool) {
+        self.has_albedo_texture = if has_albedo_texture { 1 } else { 0 };
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+pub struct PerVertexData {
+    pub vertex: Vec4,
+    pub normal: Vec4,
+    pub uv0: Vec2,
+    pub uv1: Vec2,
 }
 
 #[repr(C)]

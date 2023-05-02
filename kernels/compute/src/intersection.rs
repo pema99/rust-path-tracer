@@ -1,4 +1,4 @@
-use shared_structs::{BVHNode};
+use shared_structs::{BVHNode, PerVertexData};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::glam::{UVec4, Vec4, Vec3, Vec4Swizzles};
@@ -119,6 +119,7 @@ pub struct BVHReference<'a> {
 }
 
 impl<'a> BVHReference<'a> {
+    #[allow(dead_code)]
     pub fn intersect_fixed_order(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
         let mut stack = FixedVec::<usize, 64>::new();
         stack.push(0);
@@ -155,7 +156,7 @@ impl<'a> BVHReference<'a> {
         result
     }
 
-    pub fn intersect_front_to_back(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
+    pub fn intersect_front_to_back(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
         let mut stack = FixedVec::<usize, 64>::new();
         stack.push(0);
 
@@ -167,9 +168,9 @@ impl<'a> BVHReference<'a> {
                 for i in 0..node.triangle_count() {
                     let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
                     let triangle = index_buffer[indirect_index as usize];
-                    let a = vertex_buffer[triangle.x as usize].xyz();
-                    let b = vertex_buffer[triangle.y as usize].xyz();
-                    let c = vertex_buffer[triangle.z as usize].xyz();
+                    let a = per_vertex_buffer[triangle.x as usize].vertex.xyz();
+                    let b = per_vertex_buffer[triangle.y as usize].vertex.xyz();
+                    let c = per_vertex_buffer[triangle.z as usize].vertex.xyz();
     
                     let mut t = 0.0;
                     if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
