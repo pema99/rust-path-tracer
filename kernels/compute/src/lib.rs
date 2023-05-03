@@ -15,6 +15,8 @@ mod intersection;
 mod vec;
 mod skybox;
 
+// TODO: Use flat buffers instead of textures, so we can use the same code for CPU and GPU
+
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn main_material(
     #[spirv(global_invocation_id)] id: UVec3,
@@ -48,8 +50,10 @@ pub fn main_material(
     uv.y *= config.height as f32 / config.width as f32;
 
     // Setup camera.
-    let mut ray_origin = Vec3::new(0.0, 1.0, -5.0);
+    let mut ray_origin = config.cam_position.xyz();
     let mut ray_direction = Vec3::new(uv.x, uv.y, 1.0).normalize();
+    let euler_mat = Mat3::from_rotation_y(config.cam_rotation.y) * Mat3::from_rotation_x(config.cam_rotation.x);
+    ray_direction = euler_mat * ray_direction;
 
     let bvh = BVHReference {
         nodes: nodes_buffer,

@@ -2156,6 +2156,7 @@ dependencies = [
  "image",
  "lazy_static",
  "oidn",
+ "parking_lot",
  "rand",
  "russimp",
  "shared_structs",

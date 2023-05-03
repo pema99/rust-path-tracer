@@ -11,8 +11,9 @@ use gpgpu::{
 pub use shared_structs::TracingConfig;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
-    Arc, Mutex,
+    Arc,
 };
+use parking_lot::RwLock;
 
 use crate::asset::World;
 
@@ -46,36 +47,39 @@ impl<'fw> PathTracingKernel<'fw> {
 }
 
 #[cfg(feature = "oidn")]
-fn denoise_image(config: &TracingConfig, input: &mut [f32]) {
+fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
     let device = oidn::Device::new();
     oidn::RayTracing::new(&device)
         .srgb(true)
-        .image_dimensions(config.width as usize, config.height as usize)
+        .image_dimensions(width, height)
         .filter_in_place(input)
         .expect("Filter config error!");
 }
 
 pub fn trace(
-    framebuffer: Arc<Mutex<Vec<f32>>>,
+    framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
     samples: Arc<AtomicU32>,
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
     sync_rate: Arc<AtomicU32>,
-    config: TracingConfig,
+    interacting: Arc<AtomicBool>,
+    config: Arc<RwLock<TracingConfig>>,
 ) {
     let world = World::from_path("scene.glb");
 
+    let screen_width = config.read().width;
+    let screen_height = config.read().height;
     let mut rng = rand::thread_rng();
     let mut rng_data = Vec::new();
-    for _ in 0..(config.width * config.height) {
+    for _ in 0..(screen_width * screen_height) {
         rng_data.push(UVec2::new(
             rand::Rng::gen(&mut rng),
             rand::Rng::gen(&mut rng),
         ));
     }
 
-    let pixel_count = (config.width * config.height) as u64;
-    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config]);
+    let pixel_count = (screen_width * screen_height) as u64;
+    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config.read().clone()]);
     let rng_buffer = GpuBuffer::from_slice(&FW, &rng_data);
     let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
 
@@ -85,12 +89,15 @@ pub fn trace(
     let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
 
     while running.load(Ordering::Relaxed) {
-        let sync_rate = sync_rate.load(Ordering::Relaxed);
+        // Dispatch
+        let interacting = interacting.load(Ordering::Relaxed);
+        let sync_rate = if interacting { 1 } else { sync_rate.load(Ordering::Relaxed) };
         for _ in 0..sync_rate {
-            rt.0.enqueue(config.width.div_ceil(8), config.height.div_ceil(8), 1);
+            rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
         }
         samples.fetch_add(sync_rate, Ordering::Relaxed);
 
+        // Readback from GPU
         output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
         let sample_count = samples.load(Ordering::Relaxed) as f32;
         for (i, col) in image_buffer_raw.iter().enumerate() {
@@ -99,15 +106,20 @@ pub fn trace(
             image_buffer[i * 3 + 2] = col.z / sample_count;
         }
 
+        // Denoise
         #[cfg(feature = "oidn")]
         if denoise.load(Ordering::Relaxed) {
-            denoise_image(&config, &mut image_buffer);
+            denoise_image(screen_width as usize, screen_height as usize, &mut image_buffer);
         }
 
-        // Readback
-        match framebuffer.lock() {
-            Ok(mut fb) => fb.copy_from_slice(image_buffer.as_slice()),
-            Err(_) => {},
+        // Push to render thread
+        framebuffer.write().copy_from_slice(image_buffer.as_slice());
+
+        // Interaction
+        if interacting {
+            samples.store(0, Ordering::Relaxed);
+            config_buffer.write(&[config.read().clone()]).unwrap();
+            output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
         }
     }
 }

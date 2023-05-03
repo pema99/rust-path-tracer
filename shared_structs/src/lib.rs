@@ -4,11 +4,27 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Vec3, Vec4, Vec4Swizzles, Vec2};
 
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 pub struct TracingConfig {
+    pub cam_position: Vec4,
+    pub cam_rotation: Vec4,
     pub width: u32,
     pub height: u32,
     pub max_bounces: u32,
+    pub unused: u32,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self { 
+            cam_position: Vec4::new(0.0, 1.0, -5.0, 0.0),
+            cam_rotation: Vec4::ZERO,
+            width: 1280,
+            height: 720,
+            max_bounces: 4,
+            unused: 0,
+        }
+    }
 }
 
 #[repr(C)]
