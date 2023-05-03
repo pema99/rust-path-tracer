@@ -1,5 +1,5 @@
 [package]
-name = "compute"
+name = "kernels"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["dylib", "lib"]
 
 [dependencies]
-shared_structs = { path = "../../shared_structs" }
+shared_structs = { path = "../shared_structs" }
 spirv-std = "0.6.0"

@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 shared_structs = { path = "shared_structs" }
-compute = { path = "kernels/compute" }
+kernels = { path = "kernels" }
 bytemuck = { version = "1.13.1", features = ["derive"] }
 glam = { version = "0.22.0", features = ["bytemuck"] }
 gpgpu = { git = "https://github.com/pema99/gpgpu-rs.git", branch = "samplers", features = ["image", "integrate-image"] }

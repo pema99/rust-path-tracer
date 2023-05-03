@@ -1,4 +1,4 @@
-const KERNEL: &[u8] = include_bytes!(env!("compute.spv"));
+const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
 
 lazy_static::lazy_static! {
     pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
