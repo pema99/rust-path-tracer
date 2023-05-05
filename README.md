@@ -1,5 +1,5 @@
-# rust path tracer
+# Yet another path tracer
 
-Messing around with rust-gpu and compute shaders written in Rust again.
+GPU accelerated using compute shaders, but everything is written in Rust - both the GPU and CPU code. Uses `rust-gpu` to transpile Rust code to SPIR-V, and then uses `wgpu` to execute that SPIR-V. Pass feature flag `oidn` to enable denoising. Requires OpenImageDenoise to be installed.
 
 ![](image.png)
