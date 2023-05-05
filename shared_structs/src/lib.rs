@@ -80,6 +80,7 @@ impl MaterialData {
 pub struct PerVertexData {
     pub vertex: Vec4,
     pub normal: Vec4,
+    pub tangent: Vec4,
     pub uv0: Vec2,
     pub uv1: Vec2,
 }

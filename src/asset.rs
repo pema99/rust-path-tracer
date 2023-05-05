@@ -53,6 +53,7 @@ impl<'fw> World<'fw> {
                 GenerateSmoothNormals,
                 GenerateUVCoords,
                 TransformUVCoords,
+                CalculateTangentSpace,
                 EmbedTextures,
             ],
         )
@@ -62,9 +63,19 @@ impl<'fw> World<'fw> {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut normals = Vec::new();
+        let mut tangents = Vec::new();
         let mut uvs = Vec::new();
 
-        fn walk_node_graph(scene: &Scene, node: &Node, trs: Mat4, vertices: &mut Vec<Vec4>, indices: &mut Vec<UVec4>, normals: &mut Vec<Vec4>, uvs: &mut Vec<Vec2>) {
+        fn walk_node_graph(
+            scene: &Scene,
+            node: &Node,
+            trs: Mat4,
+            vertices: &mut Vec<Vec4>,
+            indices: &mut Vec<UVec4>,
+            normals: &mut Vec<Vec4>,
+            tangents: &mut Vec<Vec4>,
+            uvs: &mut Vec<Vec2>
+        ) {
             let node_trs = Mat4::from_cols_array_2d(&[
                 [node.transformation.a1, node.transformation.b1, node.transformation.c1, node.transformation.d1],
                 [node.transformation.a2, node.transformation.b2, node.transformation.c2, node.transformation.d2],
@@ -88,6 +99,10 @@ impl<'fw> World<'fw> {
                     let norm = new_trs.mul_vec4(Vec4::new(n.x, n.y, n.z, 0.0)).normalize();
                     normals.push(Vec4::new(norm.x, norm.z, norm.y, 0.0));
                 }
+                for t in &mesh.tangents {
+                    let tan = new_trs.mul_vec4(Vec4::new(t.x, t.y, t.z, 0.0)).normalize();
+                    tangents.push(Vec4::new(tan.x, tan.z, tan.y, 0.0));
+                }
                 if let Some(Some(uv_set)) = mesh.texture_coords.iter().next() {
                     for uv in uv_set {
                         uvs.push(Vec2::new(uv.x, uv.y));
@@ -98,12 +113,12 @@ impl<'fw> World<'fw> {
             }
 
             for child in node.children.borrow().iter() {
-                walk_node_graph(scene, &child, new_trs, vertices, indices, normals, uvs);
+                walk_node_graph(scene, &child, new_trs, vertices, indices, normals, tangents, uvs);
             }
         }
 
         if let Some(root) = blend.root.as_ref() {
-            walk_node_graph(&blend, root, Mat4::IDENTITY, &mut vertices, &mut indices, &mut normals, &mut uvs);
+            walk_node_graph(&blend, root, Mat4::IDENTITY, &mut vertices, &mut indices, &mut normals, &mut tangents, &mut uvs);
         }
 
         // Gather material data
@@ -176,6 +191,7 @@ impl<'fw> World<'fw> {
             per_vertex_data.push(PerVertexData {
                 vertex: vertices[i],
                 normal: normals[i],
+                tangent: tangents[i],
                 uv0: uvs[i],
                 ..Default::default()
             });

@@ -78,7 +78,7 @@ pub fn main_material(
             let vert_b = per_vertex_buffer[trace_result.triangle.y as usize].vertex.xyz();
             let vert_c = per_vertex_buffer[trace_result.triangle.z as usize].vertex.xyz();
             let bary = util::barycentric(hit, vert_a, vert_b, vert_c);
-            let norm = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
+            let mut normal = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
 
             let material_index = trace_result.triangle.w;
             let material = material_data_buffer[material_index as usize];
@@ -87,18 +87,29 @@ pub fn main_material(
                 output[index] += (throughput * material.emissive.xyz()).extend(1.0);
                 return;
             }
-            
+
             let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
             let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
             let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
             let uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
-            let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
             
-            let bsdf_sample = bsdf.sample(-ray_direction, norm, &mut rng_state);
+            if material.has_normal_texture() {
+                let scaled_uv = material.normals.xy() + uv * material.normals.zw();
+                let normal_map = atlas.sample_by_lod(*sampler, scaled_uv, 0.0) * 2.0 - 1.0;
+                let tangent_a = per_vertex_buffer[trace_result.triangle.x as usize].tangent.xyz();
+                let tangent_b = per_vertex_buffer[trace_result.triangle.y as usize].tangent.xyz();
+                let tangent_c = per_vertex_buffer[trace_result.triangle.z as usize].tangent.xyz();
+                let tangent = bary.x * tangent_a + bary.y * tangent_b + bary.z * tangent_c;
+                let tbn = Mat3::from_cols(tangent, normal.cross(tangent), normal);
+                normal = (tbn * normal_map.xyz()).normalize();
+            }
+            
+            let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
+            let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 
             ray_direction = bsdf_sample.sampled_direction;
-            ray_origin = hit + norm * 0.01;
+            ray_origin = hit + normal * 0.01;
         }
     }
 }
