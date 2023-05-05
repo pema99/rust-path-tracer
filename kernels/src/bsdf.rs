@@ -1,4 +1,5 @@
-use spirv_std::glam::Vec3;
+use shared_structs::MaterialData;
+use spirv_std::{glam::{Vec3, Vec2, Vec4Swizzles}, Sampler, Image};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
@@ -267,5 +268,35 @@ impl BSDF for PBR {
                 self.pdf_specular_fast(view_direction, normal, halfway, d_term)
             }
         }
+    }
+}
+
+pub fn get_pbr_bsdf(material: &MaterialData, uv: Vec2, atlas: &Image!(2D, type=f32, sampled), sampler: &Sampler) -> PBR {
+    let albedo = if material.has_albedo_texture() {
+        let scaled_uv = material.albedo.xy() + uv * material.albedo.zw();
+        let albedo = atlas.sample_by_lod(*sampler, scaled_uv, 0.0);
+        albedo.xyz()
+    } else {
+        material.albedo.xyz()
+    };
+    let roughness = if material.has_roughness_texture() {
+        let scaled_uv = material.roughness.xy() + uv * material.roughness.zw();
+        let roughness = atlas.sample_by_lod(*sampler, scaled_uv, 0.0);
+        roughness.x
+    } else {
+        material.roughness.x
+    };
+    let metallic = if material.has_metallic_texture() {
+        let scaled_uv = material.metallic.xy() + uv * material.metallic.zw();
+        let metallic = atlas.sample_by_lod(*sampler, scaled_uv, 0.0);
+        metallic.x
+    } else {
+        material.metallic.x
+    };
+
+    PBR {
+        albedo,
+        roughness,
+        metallic,
     }
 }

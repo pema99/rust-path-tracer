@@ -29,10 +29,16 @@ impl Default for TracingConfig {
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
-pub struct MaterialData {
-    pub albedo: Vec4, // either albedo color or atlas location
+pub struct MaterialData { // each Vec4 is either a color or an atlas location
+    pub emissive: Vec4,
+    pub albedo: Vec4,
+    pub roughness: Vec4,
+    pub metallic: Vec4,
+    pub normals: Vec4,
     has_albedo_texture: u32,
-    _padding: [u32; 3],
+    has_metallic_texture: u32,
+    has_roughness_texture: u32,
+    has_normal_texture: u32,
 }
 
 impl MaterialData {
@@ -42,6 +48,30 @@ impl MaterialData {
 
     pub fn set_has_albedo_texture(&mut self, has_albedo_texture: bool) {
         self.has_albedo_texture = if has_albedo_texture { 1 } else { 0 };
+    }
+
+    pub fn has_metallic_texture(&self) -> bool {
+        self.has_metallic_texture != 0
+    }
+
+    pub fn set_has_metallic_texture(&mut self, has_metallic_texture: bool) {
+        self.has_metallic_texture = if has_metallic_texture { 1 } else { 0 };
+    }
+
+    pub fn has_roughness_texture(&self) -> bool {
+        self.has_roughness_texture != 0
+    }
+
+    pub fn set_has_roughness_texture(&mut self, has_roughness_texture: bool) {
+        self.has_roughness_texture = if has_roughness_texture { 1 } else { 0 };
+    }
+
+    pub fn has_normal_texture(&self) -> bool {
+        self.has_normal_texture != 0
+    }
+
+    pub fn set_has_normal_texture(&mut self, has_normal_texture: bool) {
+        self.has_normal_texture = if has_normal_texture { 1 } else { 0 };
     }
 }
 

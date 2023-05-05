@@ -1,7 +1,7 @@
 use glam::{UVec4, Vec4, Mat4, Vec2};
 use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
-use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material}};
+use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData};
 
 use crate::{bvh::{BVH, BVHBuilder}, trace::FW};
@@ -11,7 +11,7 @@ pub struct World<'fw> {
     pub index_buffer: GpuBuffer<'fw, UVec4>,
     pub bvh: BVH<'fw>,
 
-    pub albedo_atlas: GpuConstImage<'fw, Rgba8UintNorm>,
+    pub atlas: GpuConstImage<'fw, Rgba8UintNorm>,
     pub material_data_buffer: GpuBuffer<'fw, MaterialData>,    
 }
 
@@ -32,6 +32,14 @@ fn convert_texture(texture: &Texture) -> Option<DynamicImage> {
 
 fn load_texture(material: &Material, texture_type: TextureType) -> Option<DynamicImage> {
     material.textures.get(&texture_type).and_then(|texture| convert_texture(&texture.borrow()))
+}
+
+fn load_float_array(material: &Material, name: &str) -> Option<Vec<f32>> {
+    let prop = material.properties.iter().find(|p| p.key == name)?;
+    match &prop.data {
+        PropertyTypeInfo::FloatArray(col) => Some(col.clone()),
+        _ => None
+    }
 }
 
 impl<'fw> World<'fw> {
@@ -101,21 +109,55 @@ impl<'fw> World<'fw> {
         // Gather material data
         let mut material_datas = vec![MaterialData::default(); blend.materials.len()];
 
-        let mut albedo_textures = Vec::new();
+        let mut textures = Vec::new();
         for (material_index, material) in blend.materials.iter().enumerate() {
             let current_material_data = &mut material_datas[material_index];
             if let Some(texture) = load_texture(&material, TextureType::Diffuse) {
-                albedo_textures.push(texture);
+                textures.push(texture);
                 current_material_data.set_has_albedo_texture(true);
+            }
+            if let Some(texture) = load_texture(&material, TextureType::Metalness) {
+                textures.push(texture);
+                current_material_data.set_has_metallic_texture(true);
+            }
+            if let Some(texture) = load_texture(&material, TextureType::Roughness) {
+                textures.push(texture);
+                current_material_data.set_has_roughness_texture(true);
+            }
+            if let Some(texture) = load_texture(&material, TextureType::Normals) {
+                textures.push(texture);
+                current_material_data.set_has_normal_texture(true);
+            }
+            if let Some(col) = load_float_array(&material, "$clr.diffuse") {
+                current_material_data.albedo = Vec4::new(col[0], col[1], col[2], col[3]);
+            }
+            if let Some(col) = load_float_array(&material, "$clr.emissive") {
+                // HACK: Multiply by 20 since assimp 5.2.5 doesn't support emissive strength :(
+                current_material_data.emissive = Vec4::new(col[0], col[1], col[2], col[3]) * 5.0;
+            }
+            if let Some(col) = load_float_array(&material, "$mat.metallicFactor") {
+                current_material_data.metallic = Vec4::splat(col[0]);
+            }
+            if let Some(col) = load_float_array(&material, "$mat.roughnessFactor") {
+                current_material_data.roughness = Vec4::splat(col[0]);
             }
         }
 
-        let (albedo_atlas_raw, mut albedo_sts) = crate::atlas::pack_textures(&albedo_textures, 1024, 1024);
-        let albedo_atlas = GpuConstImage::from_bytes(&FW, &albedo_atlas_raw.to_rgba8(), 1024, 1024);
+        let (atlas_raw, mut sts) = crate::atlas::pack_textures(&textures, 4096, 4096);
+        let atlas = GpuConstImage::from_bytes(&FW, &atlas_raw.to_rgba8(), 4096, 4096);
 
         for material_data in material_datas.iter_mut() {
             if material_data.has_albedo_texture() {
-                material_data.albedo = albedo_sts.remove(0); // TODO: Optimize this
+                material_data.albedo = sts.remove(0); // TODO: Optimize this
+            }
+            if material_data.has_metallic_texture() {
+                material_data.metallic = sts.remove(0);
+            }
+            if material_data.has_roughness_texture() {
+                material_data.roughness = sts.remove(0);
+            }
+            if material_data.has_normal_texture() {
+                material_data.normals = sts.remove(0);
             }
         }
 
@@ -144,7 +186,7 @@ impl<'fw> World<'fw> {
             per_vertex_buffer,
             index_buffer,
             bvh,
-            albedo_atlas,
+            atlas,
             material_data_buffer,
         }
     }

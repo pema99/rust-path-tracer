@@ -6,7 +6,7 @@ use intersection::BVHReference;
 use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
-use spirv_std::{glam, spirv};
+use spirv_std::{glam, spirv, Sampler, Image};
 
 mod bsdf;
 mod rng;
@@ -28,8 +28,8 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] nodes_buffer: &[BVHNode],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] indirect_indices_buffer: &[u32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] material_data_buffer: &[MaterialData],
-    #[spirv(descriptor_set = 0, binding = 8)] sampler: &spirv_std::Sampler,
-    #[spirv(descriptor_set = 0, binding = 9)] albedo_atlas: &spirv_std::Image!(2D, type=f32, sampled),
+    #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
+    #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
 ) {
     let index = (id.y * config.width + id.x) as usize;
 
@@ -82,24 +82,18 @@ pub fn main_material(
 
             let material_index = trace_result.triangle.w;
             let material = material_data_buffer[material_index as usize];
-            let albedo = if material.has_albedo_texture() {
-                let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
-                let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
-                let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
-                let uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
-                let uv = Vec2::new(uv.x, uv.y);
-                let scaled_uv = material.albedo.xy() + uv * material.albedo.zw();
-                let albedo = albedo_atlas.sample_by_lod(*sampler, scaled_uv, 0.0);
-                albedo.xyz()
-            } else {
-                material.albedo.xyz()
-            };
-
-            let bsdf = bsdf::PBR {
-                albedo: albedo,
-                roughness: 0.5,
-                metallic: 0.3,
-            };
+            if material.emissive.xyz() != Vec3::ZERO {
+                // Emissives don't bounce light
+                output[index] += (throughput * material.emissive.xyz()).extend(1.0);
+                return;
+            }
+            
+            let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
+            let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
+            let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
+            let uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
+            let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
+            
             let bsdf_sample = bsdf.sample(-ray_direction, norm, &mut rng_state);
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 

@@ -38,7 +38,7 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(&world.bvh.indirect_indices_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
             .bind_sampler(&sampler)
-            .bind_const_image(&world.albedo_atlas);
+            .bind_const_image(&world.atlas);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
