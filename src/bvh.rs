@@ -8,6 +8,7 @@ use crate::trace::FW;
 
 trait BVHNodeExtensions {
     fn encapsulate(&mut self, point: &Vec3);
+    fn encapsulate_node(&mut self, node: &BVHNode);
     fn area(&self) -> f32;
 }
 
@@ -15,6 +16,14 @@ impl BVHNodeExtensions for BVHNode {
     fn encapsulate(&mut self, point: &Vec3) {
         self.set_aabb_min(&self.aabb_min().min(*point));
         self.set_aabb_max(&self.aabb_max().max(*point));
+    }
+
+    fn encapsulate_node(&mut self, node: &BVHNode) {
+        if node.aabb_min().x == f32::INFINITY {
+            return;
+        }
+        self.set_aabb_min(&self.aabb_min().min(node.aabb_min()));
+        self.set_aabb_max(&self.aabb_max().max(node.aabb_max()));
     }
 
     fn area(&self) -> f32 {
@@ -123,6 +132,123 @@ impl<'a> BVHBuilder<'a> {
         }
     }
 
+    #[allow(dead_code)]
+    fn find_best_split(&self, node: &BVHNode) -> (usize, f32, f32) {
+        // calculate the best split (SAH)
+        let mut best_axis = 0;
+        let mut best_split = 0.0;
+        let mut best_cost = f32::INFINITY;
+        for axis in 0..3 {
+            // find bounds of centroids in this node
+            let mut bounds_min = f32::INFINITY;
+            let mut bounds_max = f32::NEG_INFINITY;
+            for i in 0..node.triangle_count() {
+                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
+                let centroid = self.centroids[indirect_index as usize];
+                bounds_min = bounds_min.min(centroid[axis]);
+                bounds_max = bounds_max.max(centroid[axis]);
+            }
+
+            // skip if completely flat
+            if bounds_min == bounds_max {
+                continue;
+            }
+
+            // check splits uniformly along the axis
+            let scale = (bounds_max - bounds_min) / self.sah_samples as f32;
+            for i in 1..self.sah_samples {
+                let candidate = bounds_min + scale * i as f32;
+                let cost = self.calculate_surface_area_heuristic(node, axis, candidate);
+                if cost < best_cost {
+                    best_axis = axis;
+                    best_split = candidate;
+                    best_cost = cost;
+                }
+            }
+        }
+
+        (best_axis, best_split, best_cost)
+    }
+
+    fn find_best_split_segmented(&self, node: &BVHNode) -> (usize, f32, f32) {
+        // calculate the best split (SAH)
+        let mut best_axis = 0;
+        let mut best_split = 0.0;
+        let mut best_cost = f32::INFINITY;
+        for axis in 0..3 {
+            // find bounds of centroids in this node
+            let mut bounds_min = f32::INFINITY;
+            let mut bounds_max = f32::NEG_INFINITY;
+            for i in 0..node.triangle_count() {
+                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
+                let centroid = self.centroids[indirect_index as usize];
+                bounds_min = bounds_min.min(centroid[axis]);
+                bounds_max = bounds_max.max(centroid[axis]);
+            }
+
+            // skip if completely flat
+            if bounds_min == bounds_max {
+                continue;
+            }
+
+            // build segments and fill them with triangles
+            #[derive(Default, Clone, Copy)]
+            struct Segment {
+                aabb: BVHNode,
+                triangle_count: u32,
+            }
+            let mut segments = vec![Segment::default(); self.sah_samples];
+            let scale = self.sah_samples as f32 / (bounds_max - bounds_min);
+            for i in 0..node.triangle_count() {
+                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
+                let index = self.indices[indirect_index as usize];
+                let v0 = self.vertices[index.x as usize].xyz();
+                let v1 = self.vertices[index.y as usize].xyz();
+                let v2 = self.vertices[index.z as usize].xyz();
+                let segment_index = (((self.centroids[indirect_index as usize][axis] - bounds_min) * scale) as usize).min(self.sah_samples - 1);
+                segments[segment_index].aabb.encapsulate(&v0);
+                segments[segment_index].aabb.encapsulate(&v1);
+                segments[segment_index].aabb.encapsulate(&v2);
+                segments[segment_index].triangle_count += 1;
+            }
+
+            // gather what we need for SAH from each plane between the segments
+            // this is area, tri_count of left and right segment for each possible split.
+            // the sum and box are used to calculate these efficiently with a sweep.
+            let mut left_box = BVHNode::default();
+            let mut left_sum = 0;
+            let mut left_areas = vec![0.0; self.sah_samples - 1];
+            let mut left_tri_counts = vec![0; self.sah_samples - 1];
+            let mut right_box = BVHNode::default();
+            let mut right_sum = 0;
+            let mut right_areas = vec![0.0; self.sah_samples - 1];
+            let mut right_tri_counts = vec![0; self.sah_samples - 1];
+            for i in 0..self.sah_samples - 1 {
+                left_sum += segments[i].triangle_count;
+                left_tri_counts[i] = left_sum;
+                left_box.encapsulate_node(&segments[i].aabb);
+                left_areas[i] = left_box.area();
+                right_sum += segments[self.sah_samples - 1 - i].triangle_count;
+                right_tri_counts[self.sah_samples - 2 - i] = right_sum;
+                right_box.encapsulate_node(&segments[self.sah_samples - 1 - i].aabb);
+                right_areas[self.sah_samples - 2 - i] = right_box.area();
+            }
+
+            // evaluate SAH for each split, pick the best
+            let scale = (bounds_max - bounds_min) / self.sah_samples as f32;
+            for i in 0..self.sah_samples-1 {
+                let cost = left_tri_counts[i] as f32 * left_areas[i] + right_tri_counts[i] as f32 * right_areas[i];
+                if cost < best_cost {
+                    best_axis = axis;
+                    best_split = bounds_min + scale * (i + 1) as f32;
+                    best_cost = cost;
+                }
+            }
+        }
+
+        (best_axis, best_split, best_cost)
+    }
+
     pub fn build<'b>(&mut self) -> BVH<'b> {
         let mut node_count = 1;
 
@@ -138,37 +264,7 @@ impl<'a> BVHBuilder<'a> {
             let node = &self.nodes[node_idx];
 
             // calculate the best split (SAH)
-            let mut best_axis = 0;
-            let mut best_split = 0.0;
-            let mut best_cost = f32::INFINITY;
-            for axis in 0..3 {
-                // find bounds of centroids in this node
-                let mut bounds_min = f32::INFINITY;
-                let mut bounds_max = f32::NEG_INFINITY;
-                for i in 0..node.triangle_count() {
-                    let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                    let centroid = self.centroids[indirect_index as usize];
-                    bounds_min = bounds_min.min(centroid[axis]);
-                    bounds_max = bounds_max.max(centroid[axis]);
-                }
-
-                // skip if completely flat
-                if bounds_min == bounds_max {
-                    continue;
-                }
-
-                // check splits uniformly along the axis
-                let scale = (bounds_max - bounds_min) / self.sah_samples as f32;
-                for i in 1..self.sah_samples {
-                    let candidate = bounds_min + scale * i as f32;
-                    let cost = self.calculate_surface_area_heuristic(node, axis, candidate);
-                    if cost < best_cost {
-                        best_axis = axis;
-                        best_split = candidate;
-                        best_cost = cost;
-                    }
-                }
-            }
+            let (best_axis, best_split, best_cost) = self.find_best_split_segmented(node);
 
             // if the parent node is cheaper, don't split
             let parent_cost = node.area() * node.triangle_count() as f32;
