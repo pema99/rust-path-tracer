@@ -67,7 +67,7 @@ impl BSDF for Lambertian {
 
     fn sample(&self, _view_direction: Vec3, normal: Vec3, rng: &mut rng::RngState) -> BSDFSample {
         let (up, nt, nb) = util::create_cartesian(normal);
-        let rng_sample = rng.gen_float_pair();
+        let rng_sample = rng.gen_r3();
         let sample = util::cosine_sample_hemisphere(rng_sample.x, rng_sample.y);
         let sampled_direction = Vec3::new(
             sample.x * nb.x + sample.y * up.x + sample.z * nt.x,
@@ -186,15 +186,14 @@ impl BSDF for PBR {
     }
 
     fn sample(&self, view_direction: Vec3, normal: Vec3, rng: &mut rng::RngState) -> BSDFSample {
-        let rng_sample0 = rng.gen_float();
-        let rng_sample1 = rng.gen_float_pair();
+        let rng_sample = rng.gen_r3();
         let diffuse_specular_ratio = 0.5 + 0.5 * self.metallic; // wtf is this
 
         let roughness = self.roughness.max(util::EPS);
 
-        let (sampled_direction, sampled_lobe) = if rng_sample0 > diffuse_specular_ratio {
+        let (sampled_direction, sampled_lobe) = if rng_sample.z > diffuse_specular_ratio {
             let (up, nt, nb) = util::create_cartesian(normal);
-            let sample = util::cosine_sample_hemisphere(rng_sample1.x, rng_sample1.y);
+            let sample = util::cosine_sample_hemisphere(rng_sample.x, rng_sample.y);
             let sampled_direction = Vec3::new(
                 sample.x * nb.x + sample.y * up.x + sample.z * nt.x,
                 sample.x * nb.y + sample.y * up.y + sample.z * nt.y,
@@ -205,8 +204,8 @@ impl BSDF for PBR {
         } else {
             let reflection_direction = util::reflect(-view_direction, normal);
             let sampled_direction = util::sample_ggx(
-                rng_sample1.x,
-                rng_sample1.y,
+                rng_sample.x,
+                rng_sample.y,
                 reflection_direction,
                 roughness,
             );

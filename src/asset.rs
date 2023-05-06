@@ -189,10 +189,10 @@ impl<'fw> World<'fw> {
         let mut per_vertex_data = Vec::new();
         for i in 0..vertices.len() {
             per_vertex_data.push(PerVertexData {
-                vertex: vertices[i],
-                normal: normals[i],
-                tangent: tangents[i],
-                uv0: uvs[i],
+                vertex: *vertices.get(i).unwrap_or(&Vec4::ZERO),
+                normal: *normals.get(i).unwrap_or(&Vec4::ZERO),
+                tangent: *tangents.get(i).unwrap_or(&Vec4::ZERO),
+                uv0: *uvs.get(i).unwrap_or(&Vec2::ZERO),
                 ..Default::default()
             });
         }

@@ -38,10 +38,10 @@ pub fn main_material(
         return;
     }
 
-    let mut rng_state = rng::RngState::new(&mut rng[index]);
+    let mut rng_state = rng::RngState::new(rng[index]);
 
     // Get anti-aliased pixel coordinates.
-    let suv = id.xy().as_vec2() + rng_state.gen_float_pair();
+    let suv = id.xy().as_vec2() + rng_state.gen_r2();
     let mut uv = Vec2::new(
         suv.x as f32 / config.width as f32,
         1.0 - suv.y as f32 / config.height as f32,
@@ -69,7 +69,7 @@ pub fn main_material(
         if !trace_result.hit {
             // skybox
             output[index] += (throughput * skybox::scatter(ray_origin, ray_direction)).extend(1.0);
-            return;
+            break;
         } else {
             let norm_a = per_vertex_buffer[trace_result.triangle.x as usize].normal.xyz();
             let norm_b = per_vertex_buffer[trace_result.triangle.y as usize].normal.xyz();
@@ -85,7 +85,7 @@ pub fn main_material(
             if material.emissive.xyz() != Vec3::ZERO {
                 // Emissives don't bounce light
                 output[index] += (throughput * material.emissive.xyz()).extend(1.0);
-                return;
+                break;
             }
 
             let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
@@ -112,4 +112,6 @@ pub fn main_material(
             ray_origin = hit + normal * 0.01;
         }
     }
+
+    rng[index] = rng_state.next_state();
 }
