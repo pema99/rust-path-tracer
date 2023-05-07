@@ -100,7 +100,7 @@ pub fn main_material(
                 let tangent_b = per_vertex_buffer[trace_result.triangle.y as usize].tangent.xyz();
                 let tangent_c = per_vertex_buffer[trace_result.triangle.z as usize].tangent.xyz();
                 let tangent = bary.x * tangent_a + bary.y * tangent_b + bary.z * tangent_c;
-                let tbn = Mat3::from_cols(tangent, normal.cross(tangent), normal);
+                let tbn = Mat3::from_cols(tangent, tangent.cross(normal), normal);
                 normal = (tbn * normal_map.xyz()).normalize();
             }
             
