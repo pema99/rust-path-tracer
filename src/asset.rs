@@ -1,4 +1,4 @@
-use glam::{UVec4, Vec4, Mat4, Vec2};
+use glam::{UVec4, Vec4, Mat4, Vec2, Vec3, Quat};
 use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
@@ -82,7 +82,8 @@ impl<'fw> World<'fw> {
                 [node.transformation.a3, node.transformation.b3, node.transformation.c3, node.transformation.d3],
                 [node.transformation.a4, node.transformation.b4, node.transformation.c4, node.transformation.d4],
             ]);
-            let new_trs = node_trs * trs;
+            let new_trs = trs * node_trs;
+            let (node_scale,node_quat,_) = new_trs.to_scale_rotation_translation();
 
             for mesh_idx in node.meshes.iter() {
                 let mesh = &scene.meshes[*mesh_idx as usize];
@@ -96,11 +97,11 @@ impl<'fw> World<'fw> {
                     indices.push(UVec4::new(triangle_offset + f.0[0], triangle_offset + f.0[2], triangle_offset + f.0[1], mesh.material_index));
                 }
                 for n in &mesh.normals {
-                    let norm = new_trs.mul_vec4(Vec4::new(n.x, n.y, n.z, 0.0)).normalize();
+                    let norm = (node_quat.mul_vec3(Vec3::new(n.x, n.y, n.z) / node_scale)).normalize();
                     normals.push(Vec4::new(norm.x, norm.z, norm.y, 0.0));
                 }
                 for t in &mesh.tangents {
-                    let tan = new_trs.mul_vec4(Vec4::new(t.x, t.y, t.z, 0.0)).normalize();
+                    let tan = (node_quat.mul_vec3(Vec3::new(t.x, t.y, t.z) / node_scale)).normalize();
                     tangents.push(Vec4::new(tan.x, tan.z, tan.y, 0.0));
                 }
                 if let Some(Some(uv_set)) = mesh.texture_coords.iter().next() {
