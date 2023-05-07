@@ -25,3 +25,14 @@ spirv-builder = "0.7.0"
 
 [features]
 oidn = ["dep:oidn"]
+
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 16
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
+incremental = true
