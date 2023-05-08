@@ -64,6 +64,7 @@ pub fn trace(
     sync_rate: Arc<AtomicU32>,
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
+    on_render: impl Fn() + Send + Sync
 ) {
     let world = World::from_path("scene.glb");
 
@@ -114,6 +115,7 @@ pub fn trace(
 
         // Push to render thread
         framebuffer.write().copy_from_slice(image_buffer.as_slice());
+        on_render();
 
         // Interaction
         if interacting {
