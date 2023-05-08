@@ -41,5 +41,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     color.r = render_buffer[idx*3u+0u];
     color.g = render_buffer[idx*3u+1u];
     color.b = render_buffer[idx*3u+2u];
+    color.r = pow(color.r, 2.2);
+    color.g = pow(color.g, 2.2);
+    color.b = pow(color.b, 2.2);
     return vec4<f32>(color.rgb, 1.0);
 }

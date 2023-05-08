@@ -1,21 +1,25 @@
-use egui_glium::egui_winit::egui;
-use glam::{Vec3, Mat3};
-use glium::{
-    glutin::{self, event::{WindowEvent, VirtualKeyCode}},
-    index::NoIndices,
-    texture::buffer_texture::{BufferTexture, BufferTextureType},
-    uniform, Display, Surface, VertexBuffer,
-};
-use parking_lot::RwLock;
-use std::{sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
-    Arc,
-}, collections::HashSet};
 
-use crate::trace::{trace, TracingConfig};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::{iter, sync::Arc};
+use std::time::Instant;
+
+use ::egui::FontDefinitions;
+use egui_wgpu::renderer::ScreenDescriptor;
+use egui_winit_platform::{Platform, PlatformDescriptor};
+use wgpu::util::DeviceExt;
+use winit::event::Event::*;
+use winit::event_loop::ControlFlow;
+const INITIAL_WIDTH: u32 = 1920;
+const INITIAL_HEIGHT: u32 = 1080;
+
+use glam::{Mat3, Vec3};
+use parking_lot::RwLock;
+use shared_structs::TracingConfig;
+use winit::window::Window;
+
+use crate::trace::trace;
 
 struct AppState {
-    rendertarget: BufferTexture<f32>,
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
     samples: Arc<AtomicU32>,
@@ -23,38 +27,36 @@ struct AppState {
     sync_rate: Arc<AtomicU32>,
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
+    last_input: Instant,
 }
 
 fn make_view_dependent_state(
-    display: &Display,
+    width: u32,
+    height: u32,
     config: Option<TracingConfig>,
 ) -> (
     Arc<RwLock<TracingConfig>>,
     Arc<RwLock<Vec<f32>>>,
-    BufferTexture<f32>,
 ) {
-    let inner_size = display.get_framebuffer_dimensions();
     let config = Arc::new(RwLock::new(TracingConfig {
-        width: inner_size.0,
-        height: inner_size.1,
+        width,
+        height,
         ..config.unwrap_or_default()
     }));
-    let data_size = inner_size.0 as usize * inner_size.1 as usize * 3;
+    let data_size = width as usize * height as usize * 3;
     let framebuffer = Arc::new(RwLock::new(vec![0.0; data_size]));
-    let rendertarget = BufferTexture::empty(display, data_size, BufferTextureType::Float).unwrap();
-    (config, framebuffer, rendertarget)
+    (config, framebuffer)
 }
 
 impl AppState {
-    fn new(display: &Display) -> Self {
-        let (config, framebuffer, rendertarget) = make_view_dependent_state(display, None);
+    fn new(width: u32, height: u32) -> Self {
+        let (config, framebuffer) = make_view_dependent_state(width, height, None);
         let running = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(AtomicU32::new(0));
         let denoise = Arc::new(AtomicBool::new(false));
         let sync_rate = Arc::new(AtomicU32::new(128));
         let interacting = Arc::new(AtomicBool::new(false));
         Self {
-            rendertarget,
             framebuffer,
             running,
             samples,
@@ -62,15 +64,15 @@ impl AppState {
             sync_rate,
             interacting,
             config,
+            last_input: Instant::now(),
         }
     }
 
-    fn initialize_for_new_render(&mut self, display: &Display) {
-        let (config, framebuffer, rendertarget) =
-            make_view_dependent_state(display, Some(self.config.read().clone()));
+    fn initialize_for_new_render(&mut self, width: u32, height: u32) {
+        let (config, framebuffer) =
+            make_view_dependent_state(width, height, Some(self.config.read().clone()));
         self.config = config;
         self.framebuffer = framebuffer;
-        self.rendertarget = rendertarget;
         self.samples.store(0, Ordering::Relaxed);
     }
 }
@@ -97,17 +99,18 @@ fn start_render(app_state: &AppState) {
     });
 }
 
-fn on_gui(display: &Display, app_state: &mut AppState, egui_ctx: &egui::Context) {
+fn on_gui(app_state: &mut AppState, egui_ctx: &egui::Context, window: &Window) {
     egui::Window::new("Settings").show(egui_ctx, |ui| {
         if app_state.running.load(Ordering::Relaxed) {
             if ui.button("Stop").clicked() {
-                display.gl_window().window().set_resizable(true);
+                window.set_resizable(true);
                 app_state.running.store(false, Ordering::Relaxed);
             }
         } else {
             if ui.button("Start").clicked() {
-                display.gl_window().window().set_resizable(false);
-                app_state.initialize_for_new_render(&display);
+                window.set_resizable(false);
+                let size = window.inner_size();
+                app_state.initialize_for_new_render(size.width, size.height);
                 start_render(&app_state);
             }
         }
@@ -137,7 +140,18 @@ fn on_gui(display: &Display, app_state: &mut AppState, egui_ctx: &egui::Context)
     });
 }
 
-fn handle_input(app_state: &mut AppState, key_state: &HashSet<VirtualKeyCode>, mouse_delta: &mut (f32, f32)) {
+fn handle_input(app_state: &mut AppState, mouse_delta: &mut (f32, f32), ui: &egui::Ui) {
+    if app_state.last_input.elapsed().as_millis() < 16 {
+        return;
+    }
+    app_state.last_input = Instant::now();
+
+    if ui.input().pointer.secondary_down() {
+        app_state.interacting.store(true, Ordering::Relaxed);
+    } else {
+        app_state.interacting.store(false, Ordering::Relaxed);
+    }
+
     let mut config = app_state.config.write();
 
     let mut forward = Vec3::new(0.0, 0.0, 1.0);
@@ -145,23 +159,23 @@ fn handle_input(app_state: &mut AppState, key_state: &HashSet<VirtualKeyCode>, m
     let euler_mat = Mat3::from_rotation_y(config.cam_rotation.y) * Mat3::from_rotation_x(config.cam_rotation.x);
     forward = euler_mat * forward;
     right = euler_mat * right;
-
-    if key_state.contains(&VirtualKeyCode::W) {
+    
+    if ui.input().key_down(egui::Key::W) {
         config.cam_position += forward.extend(0.0) * 0.1;
     }
-    if key_state.contains(&VirtualKeyCode::S) {
+    if ui.input().key_down(egui::Key::S) {
         config.cam_position -= forward.extend(0.0) * 0.1;
     }
-    if key_state.contains(&VirtualKeyCode::D) {
+    if ui.input().key_down(egui::Key::D) {
         config.cam_position += right.extend(0.0) * 0.1;
     }
-    if key_state.contains(&VirtualKeyCode::A) {
+    if ui.input().key_down(egui::Key::A){
         config.cam_position -= right.extend(0.0) * 0.1;
     }
-    if key_state.contains(&VirtualKeyCode::E) {
+    if ui.input().key_down(egui::Key::E){
         config.cam_position.y += 0.1;
     }
-    if key_state.contains(&VirtualKeyCode::Q) {
+    if ui.input().key_down(egui::Key::Q){
         config.cam_position.y -= 0.1;
     }
 
@@ -171,183 +185,312 @@ fn handle_input(app_state: &mut AppState, key_state: &HashSet<VirtualKeyCode>, m
 }
 
 pub fn open_window() {
-    let event_loop = glutin::event_loop::EventLoopBuilder::with_user_event().build();
-    let display = create_display(&event_loop);
+    let event_loop = winit::event_loop::EventLoopBuilder::<()>::with_user_event().build();
+    let window = winit::window::WindowBuilder::new()
+        .with_decorations(true)
+        .with_resizable(true)
+        .with_transparent(false)
+        .with_title("rust-path-tracer")
+        .with_inner_size(winit::dpi::PhysicalSize {
+            width: INITIAL_WIDTH,
+            height: INITIAL_HEIGHT,
+        })
+        .build(&event_loop)
+        .unwrap();
+    let mut app_state = AppState::new(INITIAL_WIDTH, INITIAL_HEIGHT);
 
-    let mut egui_glium = egui_glium::EguiGlium::new(&display, &event_loop);
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+    let surface = unsafe { instance.create_surface(&window) };
 
-    let mut app_state = AppState::new(&display);
-    let (vertex_buffer, index_buffer, program) = setup_program(&display);
+    // WGPU 0.11+ support force fallback (if HW implementation not supported), set it to true or false (optional).
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    }))
+    .unwrap();
 
-    // Used to only redraw when something has changed
-    let mut handled_samples = 0;
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            features: wgpu::Features::default(),
+            limits: wgpu::Limits::default(),
+            label: None,
+        },
+        None,
+    ))
+    .unwrap();
 
-    // Store input state
-    let mut last_input = std::time::Instant::now();
-    let mut key_state = HashSet::new();
+    let size = window.inner_size();
+    let surface_format = surface.get_supported_formats(&adapter)[0];
+    let mut surface_config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: surface_format,
+        width: size.width as u32,
+        height: size.height as u32,
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+    };
+    surface.configure(&device, &surface_config);
+
+    // We use the egui_winit_platform crate as the platform.
+    let mut platform = Platform::new(PlatformDescriptor {
+        physical_width: size.width as u32,
+        physical_height: size.height as u32,
+        scale_factor: window.scale_factor(),
+        font_definitions: FontDefinitions::default(),
+        style: Default::default(),
+    });
+
+    // We use the egui_wgpu_backend crate as the render backend.
+    let mut egui_rpass = egui_wgpu::renderer::Renderer::new(&device, surface_format, None, 1);
+    egui_rpass.paint_callback_resources.insert(create_render_resources(&device, surface_format, INITIAL_WIDTH, INITIAL_HEIGHT));
+
     let mut mouse_delta = (0.0, 0.0);
-
+    let start_time = Instant::now();
     event_loop.run(move |event, _, control_flow| {
-        // If samples have gone out of sync, force redraw
-        let current_samples = app_state.samples.load(Ordering::Relaxed);
-        if handled_samples != current_samples {
-            handled_samples = current_samples;
-            display.gl_window().window().request_redraw();
-        }
-
-        if last_input.elapsed().as_millis() > 16 && app_state.interacting.load(Ordering::Relaxed) {
-            handle_input(&mut app_state, &key_state, &mut mouse_delta);
-            last_input = std::time::Instant::now();
-        }
-
-        let mut redraw = || {
-            let repaint_after = egui_glium.run(&display, |egui_ctx| {
-                on_gui(&display, &mut app_state, egui_ctx);
-            });
-
-            if repaint_after.is_zero() {
-                display.gl_window().window().request_redraw();
-                glutin::event_loop::ControlFlow::Poll
-            } else if let Some(repaint_after_instant) =
-                std::time::Instant::now().checked_add(repaint_after)
-            {
-                glutin::event_loop::ControlFlow::WaitUntil(repaint_after_instant)
-            } else {
-                glutin::event_loop::ControlFlow::Wait
-            };
-
-            {
-                let mut target = display.draw();
-
-                // Readback buffer from compute thread and render it
-                {
-                    let framebuffer_data = app_state.framebuffer.read().to_owned();
-                    app_state.rendertarget.write(&framebuffer_data);
-                    target
-                        .draw(
-                            &vertex_buffer,
-                            &index_buffer,
-                            &program,
-                            &uniform! {
-                                texture: &app_state.rendertarget,
-                                width: app_state.config.read().width as f32,
-                                height: app_state.config.read().height as f32,
-                            },
-                            &Default::default(),
-                        )
-                        .unwrap();
-                }
-
-                egui_glium.paint(&display, &mut target);
-                target.finish().unwrap();
-            }
-        };
+        // Pass the winit events to the platform integration.
+        platform.handle_event(&event);
 
         match event {
-            glutin::event::Event::RedrawRequested(_) => redraw(),
-            glutin::event::Event::WindowEvent { event, .. } => {
-                if matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed) {
-                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+            RedrawRequested(..) => {
+                platform.update_time(start_time.elapsed().as_secs_f64());
+
+                let output_frame = match surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(_) => { return; }
+                };
+                let output_view = output_frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                // Begin to draw the UI frame.
+                platform.begin_frame();
+
+                // Render here
+                egui::CentralPanel::default().frame(egui::Frame::default().inner_margin(egui::Vec2::ZERO)).show(&platform.context(), |ui| {
+                    on_gui(&mut app_state, &platform.context(), &window);
+                    handle_input(&mut app_state, &mut mouse_delta, ui);
+                    let (rect, _) =
+                        ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
+                    let framebuffer = app_state.framebuffer.clone();
+                    let width = app_state.config.read().width;
+                    let height = app_state.config.read().height;
+                    let cb = egui_wgpu::CallbackFn::new()
+                        .prepare(move |device, queue, _encoder, typemap| {
+                            let resources: &TriangleRenderResources = typemap.get().unwrap();
+                            
+                            resources.prepare(device, queue, &framebuffer, width, height);
+                            vec![]
+                        })
+                        .paint(move |_info, rpass, typemap| {
+                            let resources: &TriangleRenderResources = typemap.get().unwrap();
+            
+                            resources.paint(rpass);
+                        });
+            
+                    let callback = egui::PaintCallback {
+                        rect,
+                        callback: Arc::new(cb),
+                    };
+            
+                    ui.painter().add(callback);
+                });
+                
+
+                // End the UI frame. We could now handle the output and draw the UI with the backend.
+                let full_output = platform.end_frame(Some(&window));
+                let paint_jobs = platform.context().tessellate(full_output.shapes);
+
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("encoder"),
+                });
+
+                // Upload all resources for the GPU.
+                let screen_descriptor = ScreenDescriptor {
+                    size_in_pixels: [surface_config.width, surface_config.height],
+                    pixels_per_point: window.scale_factor() as f32,
+                };
+                let tdelta: egui::TexturesDelta = full_output.textures_delta;
+                for (id, image_delta) in &tdelta.set {
+                    egui_rpass.update_texture(&device, &queue, *id, &image_delta);
                 }
+                egui_rpass.update_buffers(
+                    &device,
+                    &queue,
+                    &mut encoder,
+                    &paint_jobs,
+                    &screen_descriptor,
+                );
 
-                match event {
-                    WindowEvent::MouseInput {
-                        state,
-                        button: glutin::event::MouseButton::Right,
-                        ..
-                    } => {
-                        if state == glutin::event::ElementState::Pressed {
-                            app_state.interacting.store(true, Ordering::Relaxed);
-                            display.gl_window().window().set_cursor_visible(false);
-                        } else {
-                            app_state.interacting.store(false, Ordering::Relaxed);
-                            display.gl_window().window().set_cursor_visible(true);
-                        }
-                    }
-                    WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(keycode) = input.virtual_keycode {
-                            if input.state == glutin::event::ElementState::Pressed {
-                                key_state.insert(keycode);
-                            } else {
-                                key_state.remove(&keycode);
-                            }
-                        }
-                    }
-                    _ => {}
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass"),
+                        color_attachments: &[
+                            // This is what @location(0) in the fragment shader targets
+                            Some(wgpu::RenderPassColorAttachment {
+                                view: &output_view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                                        r: 0.1,
+                                        g: 0.2,
+                                        b: 0.3,
+                                        a: 1.0,
+                                    }),
+                                    store: true,
+                                },
+                            }),
+                        ],
+                        depth_stencil_attachment: None,
+                    });
+                    // Record all render passes.
+                    egui_rpass.render(&mut render_pass, &paint_jobs, &screen_descriptor);
                 }
+                // Submit the commands.
+                queue.submit(iter::once(encoder.finish()));
 
-                let event_response = egui_glium.on_event(&event);
+                // Redraw egui
+                output_frame.present();
 
-                if event_response.repaint {
-                    display.gl_window().window().request_redraw();
+                for id in &tdelta.free {
+                    egui_rpass.free_texture(&id);
                 }
             }
-            glutin::event::Event::DeviceEvent { event: glutin::event::DeviceEvent::MouseMotion { delta }, .. } => {
+            DeviceEvent { event: winit::event::DeviceEvent::MouseMotion { delta }, ..} => {
                 if app_state.interacting.load(Ordering::Relaxed) {
                     mouse_delta.0 += delta.0 as f32;
                     mouse_delta.1 += delta.1 as f32;
                 
                     // Set mouse position to center of screen
-                    let size = display.gl_window().window().inner_size();
-                    let center = glutin::dpi::LogicalPosition::new(size.width as f32 / 2.0, size.height as f32 / 2.0);
-                    display.gl_window().window().set_cursor_position(center).unwrap();
+                    let size = window.inner_size();
+                    let center = winit::dpi::LogicalPosition::new(size.width as f32 / 2.0, size.height as f32 / 2.0);
+                    window.set_cursor_position(center).unwrap();
                 }
             }
-            glutin::event::Event::NewEvents(glutin::event::StartCause::ResumeTimeReached {
-                ..
-            }) => {
-                display.gl_window().window().request_redraw();
+            MainEventsCleared | UserEvent(()) => {
+                window.request_redraw();
             }
+            WindowEvent { event, .. } => match event {
+                winit::event::WindowEvent::Resized(size) => {
+                    if size.width > 0 && size.height > 0 {
+                        surface_config.width = size.width;
+                        surface_config.height = size.height;
+                        surface.configure(&device, &surface_config);
+                    }
+                }
+                winit::event::WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                _ => {}
+            },
             _ => (),
         }
     });
 }
 
-fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Display {
-    let window_builder = glutin::window::WindowBuilder::new()
-        .with_resizable(true)
-        .with_inner_size(glutin::dpi::LogicalSize {
-            width: 1280.0,
-            height: 720.0,
-        })
-        .with_title("rustic");
-
-    let context_builder = glutin::ContextBuilder::new()
-        .with_depth_buffer(0)
-        .with_stencil_buffer(0)
-        .with_vsync(true);
-
-    glium::Display::new(window_builder, context_builder, event_loop).unwrap()
+struct TriangleRenderResources {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    uniform_buffer: wgpu::Buffer,
+    render_buffer: wgpu::Buffer,
 }
 
-// Setup vert buffer for a quad
-#[derive(Copy, Clone)]
-struct Vertex {
-    position: [f32; 2],
+impl TriangleRenderResources {
+    fn prepare(&self, _device: &wgpu::Device, queue: &wgpu::Queue, framebuffer: &Arc<RwLock<Vec<f32>>>, width: u32, height: u32) {
+        let vec = framebuffer.read();
+        queue.write_buffer(&self.render_buffer, 0, bytemuck::cast_slice(&vec));
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[width, height]));
+    }
+
+    fn paint<'rpass>(&'rpass self, rpass: &mut wgpu::RenderPass<'rpass>) {
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_bind_group(0, &self.bind_group, &[]);
+        rpass.draw(0..6, 0..1);
+    }
 }
-glium::implement_vertex!(Vertex, position);
 
-fn setup_program(display: &Display) -> (VertexBuffer<Vertex>, NoIndices, glium::Program) {
-    let vertex1 = Vertex {
-        position: [-1.0, -1.0],
-    };
-    let vertex2 = Vertex {
-        position: [-1.0, 1.0],
-    };
-    let vertex3 = Vertex {
-        position: [1.0, -1.0],
-    };
-    let vertex4 = Vertex {
-        position: [1.0, 1.0],
-    };
-    let shape = vec![vertex1, vertex2, vertex3, vertex4, vertex2, vertex3];
+fn create_render_resources(device: &wgpu::Device,format: wgpu::TextureFormat, width: u32, height: u32) -> TriangleRenderResources {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
+    });
 
-    let vertex_buffer = VertexBuffer::new(display, &shape).unwrap();
-    let indices = NoIndices(glium::index::PrimitiveType::TrianglesList);
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        }],
+    });
 
-    let code_vert = include_str!("shaders/basic_vert.glsl");
-    let code_frag = include_str!("shaders/basic_frag.glsl");
-    let program = glium::Program::from_source(display, &code_vert, &code_frag, None).unwrap();
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
 
-    (vertex_buffer, indices, program)
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+
+    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&[0.0]),
+        usage: wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::UNIFORM,
+    });
+
+    let render_buffer = device.create_buffer(&wgpu::BufferDescriptor { 
+        label: None, 
+        size: (width * height * 3 * 4) as u64,
+        usage: wgpu::BufferUsages::COPY_DST |
+               wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false 
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 1,
+            resource: render_buffer.as_entire_binding(),
+        }],
+    });
+
+    TriangleRenderResources { pipeline, bind_group, uniform_buffer, render_buffer }
 }
