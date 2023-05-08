@@ -1,4 +1,4 @@
-use glam::{UVec4, Vec4, Mat4, Vec2, Vec3, Quat};
+use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
 use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
