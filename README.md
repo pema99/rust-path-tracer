@@ -1,6 +1,6 @@
 # Yet another path tracer
 
-Yet another GPU accelerated toy path tracer, but everything is written in Rust - both the GPU and CPU code. Uses [rust-gpu](https://github.com/EmbarkStudios/rust-gpu) to transpile Rust code to SPIR-V, and then uses [wgpu](https://github.com/gfx-rs/wgpu) to execute that SPIR-V. 
+Yet another GPU accelerated toy path tracer, but everything is written in Rust (:rocket:) - both the GPU and CPU code. Uses [rust-gpu](https://github.com/EmbarkStudios/rust-gpu) to transpile Rust (:rocket:) code to SPIR-V, and then uses [wgpu](https://github.com/gfx-rs/wgpu) to execute that SPIR-V. 
 
 # Features
 - Simple GPU accelerated path tracing.
