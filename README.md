@@ -9,6 +9,7 @@ Yet another GPU accelerated toy path tracer, but everything is written in Rust -
 - Ray intersections are made fast using a [BVH](https://en.wikipedia.org/wiki/Bounding_volume_hierarchy) built in a binned manner using the [surface area heuristic](https://en.wikipedia.org/wiki/Bounding_interval_hierarchy#Construction). 
 - Uses [assimp](https://github.com/assimp/assimp) for scene loading, so can load many scene and model file formats, such as glTF, FBX, obj, etc.
 - Uses a nice procedural atmospheric skybox (thanks @nyrox).
+- Cross platform. Tested on Windows 10 and Arch Linux.
 - All the GPU code can be run on the CPU for debugging purposes. I don't have a nice workflow for this other than editing the code yet, though.
 
 # How to build and run
