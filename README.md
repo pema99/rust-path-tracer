@@ -28,6 +28,8 @@ cargo run -F oidn
 
 Once built and launched, to start rendering, simply drag any compatible scene file onto the window, or use the file picker. Holding right click and using WASD will let you move the camera.
 
+I've only tested using Vulkan. If `wgpu` for whatever reason defaults to a different backend on your system, you can fix this by setting the `WGPU_BACKEND` environment variable to `"vulkan"`.
+
 GPU kernel code is in `kernels/`, code shared between GPU and CPU is in `shared_structs/`, pure CPU code is in `src/`.
 
 # Pretty pictures
