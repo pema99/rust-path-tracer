@@ -22,6 +22,7 @@ pub struct App {
     sync_rate: Arc<AtomicU32>,
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
+    compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
     last_input: Instant,
     mouse_delta: (f32, f32),
@@ -107,6 +108,7 @@ impl App {
             surface,
             surface_format,
             egui_renderer,
+            compute_join_handle: None,
         }
     }
 
@@ -114,13 +116,20 @@ impl App {
         &self.window
     }
 
-    fn start_render(&mut self, width: u32, height: u32) {
-        let (config, framebuffer) = make_view_dependent_state(width, height, Some(self.config.read().clone()));
+    fn start_render(&mut self, scene_path: &str) {
+        if self.compute_join_handle.is_some() {
+            self.stop_render();
+        }
+
+        self.window.set_resizable(false);
+        let size = self.window.inner_size();
+
+        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(self.config.read().clone()));
         self.config = config;
         self.framebuffer = framebuffer;
         self.samples.store(0, Ordering::Relaxed);
 
-        let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, width, height);
+        let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, size.width, size.height);
         self.egui_renderer.paint_callback_resources.insert(render_resources);
 
         self.running.store(true, Ordering::Relaxed);
@@ -131,8 +140,11 @@ impl App {
         let sync_rate = self.sync_rate.clone();
         let interacting = self.interacting.clone();
         let config = self.config.clone();
-        std::thread::spawn(move || {
+
+        let path = scene_path.to_string();
+        self.compute_join_handle = Some(std::thread::spawn(move || {
             trace(
+                &path,
                 data,
                 running,
                 samples,
@@ -141,21 +153,28 @@ impl App {
                 interacting,
                 config,
             );
-        });
+        }));
+    }
+
+    fn stop_render(&mut self) {
+        self.window.set_resizable(true);
+        self.running.store(false, Ordering::Relaxed);
+
+        if let Some(handle) = self.compute_join_handle.take() {
+            handle.join().unwrap();
+            self.compute_join_handle = None;
+        }
     }
 
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
             if self.running.load(Ordering::Relaxed) {
                 if ui.button("Stop").clicked() {
-                    self.window.set_resizable(true);
-                    self.running.store(false, Ordering::Relaxed);
+                    self.stop_render();
                 }
             } else {
                 if ui.button("Start").clicked() {
-                    self.window.set_resizable(false);
-                    let size = self.window.inner_size();
-                    self.start_render(size.width, size.height);
+                    self.start_render("scene.glb");
                 }
             }
     
@@ -351,6 +370,10 @@ impl App {
             self.surface_config.height = size.height;
             self.surface.configure(&self.device, &self.surface_config);
         }
+    }
+
+    pub fn handle_file_dropped(&mut self, path: &std::path::PathBuf) {
+        self.start_render(path.as_os_str().to_str().unwrap());
     }
 }
 

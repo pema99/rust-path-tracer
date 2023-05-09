@@ -66,6 +66,9 @@ fn main() {
                 winit::event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
+                winit::event::WindowEvent::DroppedFile(path) => {
+                    app.handle_file_dropped(&path);
+                }
                 _ => {}
             },
             _ => (),

@@ -57,6 +57,7 @@ fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
 }
 
 pub fn trace(
+    scene_path: &str,
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
     samples: Arc<AtomicU32>,
@@ -65,7 +66,7 @@ pub fn trace(
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
 ) {
-    let world = World::from_path("scene.glb");
+    let world = World::from_path(scene_path);
 
     let screen_width = config.read().width;
     let screen_height = config.read().height;
