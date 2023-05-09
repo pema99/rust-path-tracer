@@ -24,6 +24,7 @@ pub struct App {
     config: Arc<RwLock<TracingConfig>>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
+    selected_scene: String,
     last_input: Instant,
     mouse_delta: (f32, f32),
 
@@ -109,6 +110,7 @@ impl App {
             surface_format,
             egui_renderer,
             compute_join_handle: None,
+            selected_scene: "scene.glb".to_string(),
         }
     }
 
@@ -116,7 +118,7 @@ impl App {
         &self.window
     }
 
-    fn start_render(&mut self, scene_path: &str) {
+    fn start_render(&mut self) {
         if self.compute_join_handle.is_some() {
             self.stop_render();
         }
@@ -141,7 +143,7 @@ impl App {
         let interacting = self.interacting.clone();
         let config = self.config.clone();
 
-        let path = scene_path.to_string();
+        let path = self.selected_scene.clone();
         self.compute_join_handle = Some(std::thread::spawn(move || {
             trace(
                 &path,
@@ -168,15 +170,26 @@ impl App {
 
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
-            if self.running.load(Ordering::Relaxed) {
-                if ui.button("Stop").clicked() {
-                    self.stop_render();
+            ui.label(format!("Selected scene: {}", self.selected_scene));
+
+            ui.horizontal(|ui| {
+                if self.running.load(Ordering::Relaxed) {
+                    if ui.button("Stop").clicked() {
+                        self.stop_render();
+                    }
+                } else {
+                    if ui.button("Start").clicked() {
+                        self.start_render();
+                    }
                 }
-            } else {
-                if ui.button("Start").clicked() {
-                    self.start_render("scene.glb");
+
+                if ui.button("Select scene").clicked() {
+                    tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
+                        self.selected_scene = path.clone();
+                        self.start_render();
+                    });
                 }
-            }
+            });
     
             #[cfg(feature = "oidn")]
             {
@@ -373,7 +386,8 @@ impl App {
     }
 
     pub fn handle_file_dropped(&mut self, path: &std::path::PathBuf) {
-        self.start_render(path.as_os_str().to_str().unwrap());
+        self.selected_scene = path.to_str().unwrap().to_string();
+        self.start_render();
     }
 }
 

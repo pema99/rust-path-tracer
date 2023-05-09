@@ -22,6 +22,7 @@ egui-wgpu = "0.20.0"
 egui_winit_platform = "0.17.0"
 egui = "0.20.0"
 pollster = "0.2.5"
+tinyfiledialogs = "3.9.1"
 
 [build-dependencies]
 spirv-builder = "0.7.0"
