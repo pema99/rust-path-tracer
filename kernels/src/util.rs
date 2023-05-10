@@ -51,6 +51,7 @@ pub fn ggx_distribution(normal: Vec3, halfway: Vec3, roughness: f32) -> f32 {
     numerator / denominator
 }
 
+// https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
 pub fn sample_ggx(r1: f32, r2: f32, reflection_direction: Vec3, roughness: f32) -> Vec3 {
     let a = roughness * roughness;
 
