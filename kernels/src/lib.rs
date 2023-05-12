@@ -61,7 +61,7 @@ pub fn main_material(
     };
 
     let mut throughput = Vec3::ONE;
-    for _ in 0..4 {
+    for bounce in 0..4 {
         let trace_result = bvh.intersect_front_to_back(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
         //let trace_result = trace_slow_as_shit(vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
@@ -109,7 +109,16 @@ pub fn main_material(
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 
             ray_direction = bsdf_sample.sampled_direction;
-            ray_origin = hit + normal * 0.01;
+            ray_origin = hit + ray_direction * 0.01;
+
+            // Russian roulette
+            if bounce > 3 {
+                let prob = throughput.max_element();
+                if rng_state.gen_r1() > prob {
+                    break;
+                }
+                throughput *= 1.0 / prob;
+            }
         }
     }
 
