@@ -20,6 +20,7 @@ pub struct App {
     samples: Arc<AtomicU32>,
     denoise: Arc<AtomicBool>,
     sync_rate: Arc<AtomicU32>,
+    use_blue_noise: Arc<AtomicBool>,
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
@@ -90,6 +91,7 @@ impl App {
         let samples = Arc::new(AtomicU32::new(0));
         let denoise = Arc::new(AtomicBool::new(false));
         let sync_rate = Arc::new(AtomicU32::new(128));
+        let use_blue_noise = Arc::new(AtomicBool::new(true));
         let interacting = Arc::new(AtomicBool::new(false));
         let egui_renderer = egui_wgpu::renderer::Renderer::new(&device, surface_format, None, 1);
         Self {
@@ -98,6 +100,7 @@ impl App {
             samples,
             denoise,
             sync_rate,
+            use_blue_noise,
             interacting,
             config,
             last_input: Instant::now(),
@@ -140,6 +143,7 @@ impl App {
         let samples = self.samples.clone();
         let denoise = self.denoise.clone();
         let sync_rate = self.sync_rate.clone();
+        let use_blue_noise = self.use_blue_noise.clone();
         let interacting = self.interacting.clone();
         let config = self.config.clone();
 
@@ -152,6 +156,7 @@ impl App {
                 samples,
                 denoise,
                 sync_rate,
+                use_blue_noise,
                 interacting,
                 config,
             );
@@ -190,23 +195,26 @@ impl App {
                     });
                 }
             });
-    
-            #[cfg(feature = "oidn")]
-            {
-                let mut denoise_checked = self.denoise.load(Ordering::Relaxed);
-                if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
-                    self.denoise.store(denoise_checked, Ordering::Relaxed);
-                }
-            }
-    
-            {
-                let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
-                if ui
-                    .add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate"))
-                    .changed()
+            
+            ui.horizontal(|ui| {
+                #[cfg(feature = "oidn")]
                 {
-                    self.sync_rate.store(sync_rate, Ordering::Relaxed);
+                    let mut denoise_checked = self.denoise.load(Ordering::Relaxed);
+                    if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
+                        self.denoise.store(denoise_checked, Ordering::Relaxed);
+                    }
                 }
+
+                let mut use_blue_noise = self.use_blue_noise.load(Ordering::Relaxed);
+                if ui.checkbox(&mut use_blue_noise, "Use blue noise").changed() {
+                    self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
+                }
+            });
+
+            let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
+            if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed()
+            {
+                self.sync_rate.store(sync_rate, Ordering::Relaxed);
             }
     
             ui.label(format!(
@@ -429,7 +437,7 @@ impl PaintCallbackResources {
     ) -> PaintCallbackResources {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("resources/render.wgsl").into()),
         });
     
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

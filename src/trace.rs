@@ -1,18 +1,20 @@
 const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
-
+const BLUE_BYTES: &'static [u8] = include_bytes!("resources/bluenoise.png");
 lazy_static::lazy_static! {
     pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
+    pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
 use glam::{UVec2, Vec4};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
+use image::{RgbaImage, io::Reader};
 pub use shared_structs::TracingConfig;
-use std::sync::{
+use std::{sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
-};
+}, io::Cursor};
 use parking_lot::RwLock;
 
 use crate::asset::World;
@@ -63,6 +65,7 @@ pub fn trace(
     samples: Arc<AtomicU32>,
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
     sync_rate: Arc<AtomicU32>,
+    use_blue_noise: Arc<AtomicBool>,
     interacting: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
 ) {
@@ -70,18 +73,23 @@ pub fn trace(
 
     let screen_width = config.read().width;
     let screen_height = config.read().height;
+    let pixel_count = (screen_width * screen_height) as usize;
     let mut rng = rand::thread_rng();
-    let mut rng_data = Vec::new();
-    for _ in 0..(screen_width * screen_height) {
-        rng_data.push(UVec2::new(
-            rand::Rng::gen(&mut rng),
-            rand::Rng::gen(&mut rng),
-        ));
+    let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    for y in 0..screen_height {
+        for x in 0..screen_width {
+            let pixel_index = (y * screen_width + x) as usize;
+            let pixel = BLUE_TEXTURE.get_pixel(x as u32 % BLUE_TEXTURE.width(), y as u32 % BLUE_TEXTURE.height())[0] as f32 / 255.0;
+            rng_data_blue[pixel_index].x = 0;
+            rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
+            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+        }
     }
 
     let pixel_count = (screen_width * screen_height) as u64;
     let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config.read().clone()]);
-    let rng_buffer = GpuBuffer::from_slice(&FW, &rng_data);
+    let rng_buffer = GpuBuffer::from_slice(&FW, if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
     let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
@@ -121,6 +129,7 @@ pub fn trace(
             samples.store(0, Ordering::Relaxed);
             config_buffer.write(&[config.read().clone()]).unwrap();
             output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
+            rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
         }
     }
 }
