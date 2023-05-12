@@ -107,3 +107,11 @@ pub fn barycentric(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     let w = (d00 * d21 - d01 * d20) / denom;
     Vec3::new(1.0 - v - w, v, w)
 }
+
+pub fn mask_nan(v: Vec3) -> Vec3 {
+    if v.is_finite() {
+        v
+    } else {
+        Vec3::ZERO
+    }
+}

@@ -2,6 +2,8 @@ use spirv_std::glam::{Vec2, Vec3};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
+use crate::util;
+
 // Constants
 const RAY_SCATTER_COEFF: Vec3 = Vec3::new(58e-7, 135e-7, 331e-7);
 const RAY_EFFECTIVE_COEFF: Vec3 = RAY_SCATTER_COEFF; // Rayleight doesn't absorb light
@@ -90,5 +92,5 @@ pub fn scatter(origin: Vec3, direction: Vec3) -> Vec3 {
                 + i_m * MIE_SCATTER_COEFF * 0.0196 / (1.58 - 1.52 * mu).powf(1.5)
         );
 
-    return Vec3::new(res.x.sqrt(), res.y.sqrt(), res.z.sqrt());
+    return util::mask_nan(Vec3::new(res.x.sqrt(), res.y.sqrt(), res.z.sqrt()));
 }
