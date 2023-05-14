@@ -91,7 +91,10 @@ pub fn main_material(
             let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
             let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
             let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
-            let uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
+            let mut uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
+            if uv.clamp(Vec2::ZERO, Vec2::ONE) != uv {
+                uv = uv.fract();
+            }
             
             if material.has_normal_texture() {
                 let scaled_uv = material.normals.xy() + uv * material.normals.zw();
