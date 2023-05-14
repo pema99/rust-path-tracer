@@ -181,7 +181,6 @@ impl App {
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
             egui::Grid::new("MainGrid")
-            .num_columns(2)
             .striped(true)
             .show(ui, |ui| {
                 ui.vertical(|ui| {
