@@ -112,7 +112,7 @@ pub fn main_material(
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 
             ray_direction = bsdf_sample.sampled_direction;
-            ray_origin = hit + ray_direction * 0.01;
+            ray_origin = hit + ray_direction * util::EPS;
 
             // Russian roulette
             if bounce > config.min_bounces {
