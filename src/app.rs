@@ -203,6 +203,16 @@ impl App {
                                 self.start_render();
                             });
                         }
+
+                        if ui.button("Save image").clicked() {
+                            let framebuffer = self.framebuffer.read().iter().map(|x| (x * 255.0) as u8).collect::<Vec<_>>();
+                            let image = image::RgbImage::from_vec(self.config.read().width, self.config.read().height, framebuffer).unwrap();
+                            tinyfiledialogs::save_file_dialog("Select scene", "").map(|path| {
+                                if image.save(path).is_err() {
+                                    println!("Failed to save image");
+                                }
+                            });
+                        }
                     });
                 });
                 ui.end_row();
