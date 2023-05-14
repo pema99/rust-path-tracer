@@ -22,6 +22,7 @@ pub struct App {
     sync_rate: Arc<AtomicU32>,
     use_blue_noise: Arc<AtomicBool>,
     interacting: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
@@ -93,6 +94,7 @@ impl App {
         let sync_rate = Arc::new(AtomicU32::new(128));
         let use_blue_noise = Arc::new(AtomicBool::new(true));
         let interacting = Arc::new(AtomicBool::new(false));
+        let dirty = Arc::new(AtomicBool::new(false));
         let egui_renderer = egui_wgpu::renderer::Renderer::new(&device, surface_format, None, 1);
         Self {
             framebuffer,
@@ -102,6 +104,7 @@ impl App {
             sync_rate,
             use_blue_noise,
             interacting,
+            dirty,
             config,
             last_input: Instant::now(),
             mouse_delta: (0.0, 0.0),
@@ -145,6 +148,7 @@ impl App {
         let sync_rate = self.sync_rate.clone();
         let use_blue_noise = self.use_blue_noise.clone();
         let interacting = self.interacting.clone();
+        let dirty = self.dirty.clone();
         let config = self.config.clone();
 
         let path = self.selected_scene.clone();
@@ -158,6 +162,7 @@ impl App {
                 sync_rate,
                 use_blue_noise,
                 interacting,
+                dirty,
                 config,
             );
         }));
@@ -175,52 +180,82 @@ impl App {
 
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
-            ui.label(format!("Selected scene: {}", self.selected_scene));
+            egui::Grid::new("MainGrid")
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.label(format!("Selected scene: {}", self.selected_scene));
+                    ui.horizontal(|ui| {
+                        if self.running.load(Ordering::Relaxed) {
+                            if ui.button("Stop").clicked() {
+                                self.stop_render();
+                            }
+                        } else {
+                            if ui.button("Start").clicked() {
+                                self.start_render();
+                            }
+                        }
 
-            ui.horizontal(|ui| {
-                if self.running.load(Ordering::Relaxed) {
-                    if ui.button("Stop").clicked() {
-                        self.stop_render();
-                    }
-                } else {
-                    if ui.button("Start").clicked() {
-                        self.start_render();
-                    }
-                }
-
-                if ui.button("Select scene").clicked() {
-                    tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
-                        self.selected_scene = path.clone();
-                        self.start_render();
+                        if ui.button("Select scene").clicked() {
+                            tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
+                                self.selected_scene = path.clone();
+                                self.start_render();
+                            });
+                        }
                     });
-                }
-            });
-            
-            ui.horizontal(|ui| {
-                #[cfg(feature = "oidn")]
-                {
-                    let mut denoise_checked = self.denoise.load(Ordering::Relaxed);
-                    if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
-                        self.denoise.store(denoise_checked, Ordering::Relaxed);
+                });
+                ui.end_row();
+                
+                ui.horizontal(|ui| {
+                    #[cfg(feature = "oidn")]
+                    {
+                        let mut denoise_checked = self.denoise.load(Ordering::Relaxed);
+                        if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
+                            self.denoise.store(denoise_checked, Ordering::Relaxed);
+                        }
                     }
-                }
-
-                let mut use_blue_noise = self.use_blue_noise.load(Ordering::Relaxed);
-                if ui.checkbox(&mut use_blue_noise, "Use blue noise").changed() {
-                    self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
-                }
-            });
-
-            let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
-            if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed()
-            {
-                self.sync_rate.store(sync_rate, Ordering::Relaxed);
-            }
     
-            ui.label(format!(
-                "Samples: {}",
-                self.samples.load(Ordering::Relaxed)
-            ));
+                    let mut use_blue_noise = self.use_blue_noise.load(Ordering::Relaxed);
+                    if ui.checkbox(&mut use_blue_noise, "Use blue noise").changed() {
+                        self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
+                        self.dirty.store(true, Ordering::Relaxed);
+                    }
+                });
+                ui.end_row();
+    
+                ui.horizontal(|ui| {
+                    let mut config = self.config.write();
+                    if ui.add(egui::DragValue::new(&mut config.min_bounces)).changed() {
+                        if config.min_bounces > config.max_bounces {
+                            config.max_bounces = config.min_bounces;
+                        }
+                        self.dirty.store(true, Ordering::Relaxed);
+                    }
+                    ui.label("Min bounces");
+    
+                    if ui.add(egui::DragValue::new(&mut config.max_bounces)).changed() {
+                        if config.max_bounces < config.min_bounces {
+                            config.min_bounces = config.max_bounces;
+                        }
+                        self.dirty.store(true, Ordering::Relaxed);
+                    }
+                    ui.label("Max bounces");
+                });
+                ui.end_row();
+
+                let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
+                if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed() {
+                    self.sync_rate.store(sync_rate, Ordering::Relaxed);
+                }
+                ui.end_row();
+        
+                ui.label(format!(
+                    "Samples: {}",
+                    self.samples.load(Ordering::Relaxed)
+                ));
+                ui.end_row();
+            });
         });
     }
 

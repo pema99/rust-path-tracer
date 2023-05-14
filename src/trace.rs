@@ -67,6 +67,7 @@ pub fn trace(
     sync_rate: Arc<AtomicU32>,
     use_blue_noise: Arc<AtomicBool>,
     interacting: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
 ) {
     let world = World::from_path(scene_path);
@@ -99,7 +100,7 @@ pub fn trace(
 
     while running.load(Ordering::Relaxed) {
         // Dispatch
-        let interacting = interacting.load(Ordering::Relaxed);
+        let interacting = interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
         let sync_rate = if interacting { 1 } else { sync_rate.load(Ordering::Relaxed) };
         for _ in 0..sync_rate {
             rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
@@ -126,6 +127,7 @@ pub fn trace(
 
         // Interaction
         if interacting {
+            dirty.store(false, Ordering::Relaxed);
             samples.store(0, Ordering::Relaxed);
             config_buffer.write(&[config.read().clone()]).unwrap();
             output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();

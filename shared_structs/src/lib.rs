@@ -10,8 +10,8 @@ pub struct TracingConfig {
     pub cam_rotation: Vec4,
     pub width: u32,
     pub height: u32,
+    pub min_bounces: u32,
     pub max_bounces: u32,
-    pub unused: u32,
 }
 
 impl Default for TracingConfig {
@@ -21,8 +21,8 @@ impl Default for TracingConfig {
             cam_rotation: Vec4::ZERO,
             width: 1280,
             height: 720,
+            min_bounces: 3,
             max_bounces: 4,
-            unused: 0,
         }
     }
 }
