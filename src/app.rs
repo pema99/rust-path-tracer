@@ -1,4 +1,5 @@
 
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 use std::{iter, sync::Arc};
@@ -216,13 +217,11 @@ impl App {
                         }
 
                         if ui.button("Save image").clicked() {
-                            let framebuffer = self.framebuffer.read().iter().map(|x| (x * 255.0) as u8).collect::<Vec<_>>();
-                            let image = image::RgbImage::from_vec(self.config.read().width, self.config.read().height, framebuffer).unwrap();
-                            tinyfiledialogs::save_file_dialog("Select scene", "").map(|path| {
-                                if image.save(path).is_err() {
-                                    println!("Failed to save image");
-                                }
-                            });
+                            if let Some(resources) = self.egui_renderer.paint_callback_resources.get::<PaintCallbackResources>() {
+                                let width = self.config.read().width;
+                                let height = self.config.read().height;
+                                resources.save_render(width, height, self.surface_format, &self.device, &self.queue);
+                            }
                         }
                     });
                 });
@@ -599,5 +598,90 @@ impl PaintCallbackResources {
             uniform_buffer,
             render_buffer,
         }
+    }
+
+    fn save_render(&self, texture_width: u32, texture_height: u32, format: wgpu::TextureFormat, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let texture_desc = &wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: texture_width,
+                height: texture_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        };
+        let texture = device.create_texture(texture_desc);
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: None,
+            });
+            self.paint(&mut render_pass);
+        }
+    
+        let u32_size = std::mem::size_of::<u32>() as u32;
+    
+        let output_buffer_size = (u32_size * texture_width * texture_height) as wgpu::BufferAddress;
+        let output_buffer_desc = wgpu::BufferDescriptor {
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST
+                // this tells wpgu that we want to read this buffer from the cpu
+                | wgpu::BufferUsages::MAP_READ,
+            label: None,
+            mapped_at_creation: false,
+        };
+        let output_buffer = device.create_buffer(&output_buffer_desc);
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                        texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: NonZeroU32::new(u32_size * texture_width),
+                    rows_per_image: NonZeroU32::new(texture_height),
+                },
+            },
+            texture_desc.size,
+        );
+        queue.submit(Some(encoder.finish()));
+    
+        {
+            let buffer_slice = output_buffer.slice(..);
+        
+            buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+            device.poll(wgpu::Maintain::Wait);
+            let data = buffer_slice.get_mapped_range();
+        
+            let buffer = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()).unwrap();
+            let image = image::DynamicImage::ImageBgra8(buffer).into_rgba8();
+            tinyfiledialogs::save_file_dialog("Save render", "").map(|path| {
+                let res = image.save(path);
+                if res.is_err() {
+                    println!("Failed to save image: {:?}", res.err());
+                }
+            });
+        }
+        output_buffer.unmap();
     }
 }
