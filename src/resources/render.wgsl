@@ -31,6 +31,19 @@ fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {
     return out;
 }
 
+fn aces(x: f32) -> f32 {
+  var a = 2.51;
+  var b = 0.03;
+  var c = 2.43;
+  var d = 0.59;
+  var e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+fn rheinhard(x: f32) -> f32 {
+    return x / (x + 1.0);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     var uv = in.uv;
@@ -41,8 +54,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     color.r = render_buffer[idx*3u+0u];
     color.g = render_buffer[idx*3u+1u];
     color.b = render_buffer[idx*3u+2u];
-    color.r = pow(color.r, 2.2);
-    color.g = pow(color.g, 2.2);
-    color.b = pow(color.b, 2.2);
     return vec4<f32>(color.rgb, 1.0);
 }

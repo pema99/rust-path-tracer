@@ -128,7 +128,12 @@ impl<'fw> World<'fw> {
         let mut textures = Vec::new();
         for (material_index, material) in blend.materials.iter().enumerate() {
             let current_material_data = &mut material_datas[material_index];
-            if let Some(texture) = load_texture(&material, TextureType::Diffuse) {
+            if let Some(mut texture) = load_texture(&material, TextureType::Diffuse) {
+                // Albedo data is stored in gamma space, but we atlas it with all the other textures
+                // which are stored in linear. Therefore, we convert here.
+                for pixel in texture.as_mut_rgb8().unwrap().iter_mut() {
+                    *pixel = ((*pixel as f32 / 255.0).powf(2.2) * 255.0) as u8;
+                }
                 textures.push(texture);
                 current_material_data.set_has_albedo_texture(true);
             }
