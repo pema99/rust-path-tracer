@@ -14,6 +14,16 @@ use shared_structs::TracingConfig;
 
 use crate::trace::trace;
 
+#[repr(u32)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+enum Tonemapping {
+    None,
+    Reinhard,
+    ACES,
+    Neutral,
+    Uncharted,
+}
+
 pub struct App {
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
@@ -26,6 +36,7 @@ pub struct App {
     config: Arc<RwLock<TracingConfig>>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
+    tonemapping: Tonemapping,
     selected_scene: String,
     last_input: Instant,
     mouse_delta: (f32, f32),
@@ -117,6 +128,7 @@ impl App {
             egui_renderer,
             compute_join_handle: None,
             selected_scene: "scene.glb".to_string(),
+            tonemapping: Tonemapping::None,
         }
     }
 
@@ -253,6 +265,18 @@ impl App {
                 });
                 ui.end_row();
 
+                egui::ComboBox::from_label("Tonemapping operator")
+                    .selected_text(format!("{:?}", self.tonemapping))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::None, "None");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::ACES, "ACES");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::Neutral, "Neutral");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::Reinhard, "Reinhard");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::Uncharted, "Uncharted");
+                    }
+                );
+                ui.end_row();
+
                 let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
                 if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed() {
                     self.sync_rate.store(sync_rate, Ordering::Relaxed);
@@ -342,10 +366,11 @@ impl App {
                 let framebuffer = self.framebuffer.clone();
                 let width = self.config.read().width;
                 let height = self.config.read().height;
+                let tonemapping = self.tonemapping;
                 let cb = egui_wgpu::CallbackFn::new()
                     .prepare(move |_device, queue, _encoder, typemap| {
                         if let Some(resources) = typemap.get::<PaintCallbackResources>() {
-                            resources.prepare(queue, &framebuffer, width, height);
+                            resources.prepare(queue, &framebuffer, width, height, tonemapping);
                         }
                         Default::default()
                     })
@@ -457,13 +482,14 @@ impl PaintCallbackResources {
         framebuffer: &Arc<RwLock<Vec<f32>>>,
         width: u32,
         height: u32,
+        tonemapping: Tonemapping,
     ) {
         let vec = framebuffer.read();
         queue.write_buffer(&self.render_buffer, 0, bytemuck::cast_slice(&vec));
         queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[width, height]),
+            bytemuck::cast_slice(&[width, height, tonemapping as u32]),
         );
     }
 
@@ -541,7 +567,7 @@ impl PaintCallbackResources {
     
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&[0.0]),
+            contents: bytemuck::cast_slice(&[0.0, 0.0, 0.0]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
     

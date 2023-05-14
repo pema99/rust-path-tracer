@@ -92,5 +92,5 @@ pub fn scatter(origin: Vec3, direction: Vec3) -> Vec3 {
                 + i_m * MIE_SCATTER_COEFF * 0.0196 / (1.58 - 1.52 * mu).powf(1.5)
         );
 
-    return util::mask_nan(Vec3::new(res.x.sqrt(), res.y.sqrt(), res.z.sqrt()));
+    return util::mask_nan(Vec3::new(res.x.sqrt(), res.y.sqrt(), res.z.sqrt())).powf(2.2);
 }
