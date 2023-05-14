@@ -102,7 +102,7 @@ impl App {
         let running = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(AtomicU32::new(0));
         let denoise = Arc::new(AtomicBool::new(false));
-        let sync_rate = Arc::new(AtomicU32::new(128));
+        let sync_rate = Arc::new(AtomicU32::new(32));
         let use_blue_noise = Arc::new(AtomicBool::new(true));
         let interacting = Arc::new(AtomicBool::new(false));
         let dirty = Arc::new(AtomicBool::new(false));
@@ -278,7 +278,7 @@ impl App {
                 ui.end_row();
 
                 let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
-                if ui.add(egui::Slider::new(&mut sync_rate, 1..=1024).text("Sync rate")).changed() {
+                if ui.add(egui::Slider::new(&mut sync_rate, 1..=256).text("Sync rate")).changed() {
                     self.sync_rate.store(sync_rate, Ordering::Relaxed);
                 }
                 ui.end_row();
