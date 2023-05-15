@@ -37,7 +37,6 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(&world.per_vertex_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.bvh.indirect_indices_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
             .bind_sampler(&sampler)
             .bind_const_image(&world.atlas);

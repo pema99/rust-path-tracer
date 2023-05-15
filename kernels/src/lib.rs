@@ -26,10 +26,9 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] per_vertex_buffer: &[PerVertexData],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] nodes_buffer: &[BVHNode],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] indirect_indices_buffer: &[u32],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] material_data_buffer: &[MaterialData],
-    #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
-    #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] material_data_buffer: &[MaterialData],
+    #[spirv(descriptor_set = 0, binding = 7)] sampler: &Sampler,
+    #[spirv(descriptor_set = 0, binding = 8)] atlas: &Image!(2D, type=f32, sampled),
 ) {
     let index = (id.y * config.width + id.x) as usize;
 
@@ -57,7 +56,6 @@ pub fn main_material(
 
     let bvh = BVHReference {
         nodes: nodes_buffer,
-        indirect_indices: indirect_indices_buffer,
     };
 
     let mut throughput = Vec3::ONE;

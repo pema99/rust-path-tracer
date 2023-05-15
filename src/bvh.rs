@@ -34,23 +34,19 @@ impl BVHNodeExtensions for BVHNode {
 
 pub struct BVH<'fw> {
     pub nodes: Vec<BVHNode>,
-    pub indirect_indices: Vec<u32>,
     pub nodes_buffer: GpuBuffer<'fw, BVHNode>,
-    pub indirect_indices_buffer: GpuBuffer<'fw, u32>,
 }
 
 pub struct BVHBuilder<'a> {
     sah_samples: usize,
     vertices: &'a [Vec4],
-    indices: &'a [UVec4],
+    indices: &'a mut [UVec4],
     centroids: Vec<Vec3>,
-    indirect_indices: Vec<u32>,
     nodes: Vec<BVHNode>,
 }
 
 impl<'a> BVHBuilder<'a> {
-    pub fn new(vertices: &'a [Vec4], indices: &'a [UVec4]) -> Self {
-        let indirect_indices: Vec<u32> = (0..indices.len() as u32).collect();
+    pub fn new(vertices: &'a [Vec4], indices: &'a mut [UVec4]) -> Self {
         let centroids = indices
             .iter()
             .map(|ind| {
@@ -67,7 +63,6 @@ impl<'a> BVHBuilder<'a> {
             vertices,
             indices,
             centroids,
-            indirect_indices,
             nodes,
         }
     }
@@ -83,8 +78,8 @@ impl<'a> BVHBuilder<'a> {
         let mut aabb_max = Vec3::splat(f32::NEG_INFINITY);
 
         for i in 0..node.triangle_count() {
-            let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-            let index = self.indices[indirect_index as usize];
+            let triangle_index = (node.first_triangle_index() + i) as usize;
+            let index = self.indices[triangle_index];
             let v0 = self.vertices[index.x as usize].xyz();
             let v1 = self.vertices[index.y as usize].xyz();
             let v2 = self.vertices[index.z as usize].xyz();
@@ -104,12 +99,12 @@ impl<'a> BVHBuilder<'a> {
         let mut right_tri_count = 0;
     
         for i in 0..node.triangle_count() {
-            let indirect_index = self.indirect_indices[(node.left_node_index() + i) as usize];
-            let index = self.indices[indirect_index as usize];
+            let triangle_index = (node.left_node_index() + i) as usize;
+            let index = self.indices[triangle_index];
             let v0 = self.vertices[index.x as usize].xyz();
             let v1 = self.vertices[index.y as usize].xyz();
             let v2 = self.vertices[index.z as usize].xyz();
-            let centroid = self.centroids[indirect_index as usize];
+            let centroid = self.centroids[triangle_index];
     
             if centroid[axis] < split {
                 left_box.encapsulate(&v0);
@@ -143,8 +138,8 @@ impl<'a> BVHBuilder<'a> {
             let mut bounds_min = f32::INFINITY;
             let mut bounds_max = f32::NEG_INFINITY;
             for i in 0..node.triangle_count() {
-                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                let centroid = self.centroids[indirect_index as usize];
+                let triangle_index = (node.first_triangle_index() + i) as usize;
+                let centroid = self.centroids[triangle_index];
                 bounds_min = bounds_min.min(centroid[axis]);
                 bounds_max = bounds_max.max(centroid[axis]);
             }
@@ -180,8 +175,8 @@ impl<'a> BVHBuilder<'a> {
             let mut bounds_min = f32::INFINITY;
             let mut bounds_max = f32::NEG_INFINITY;
             for i in 0..node.triangle_count() {
-                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                let centroid = self.centroids[indirect_index as usize];
+                let triangle_index = (node.first_triangle_index() + i) as usize;
+                let centroid = self.centroids[triangle_index];
                 bounds_min = bounds_min.min(centroid[axis]);
                 bounds_max = bounds_max.max(centroid[axis]);
             }
@@ -200,12 +195,12 @@ impl<'a> BVHBuilder<'a> {
             let mut segments = vec![Segment::default(); self.sah_samples];
             let scale = self.sah_samples as f32 / (bounds_max - bounds_min);
             for i in 0..node.triangle_count() {
-                let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                let index = self.indices[indirect_index as usize];
+                let triangle_index = (node.first_triangle_index() + i) as usize;
+                let index = self.indices[triangle_index];
                 let v0 = self.vertices[index.x as usize].xyz();
                 let v1 = self.vertices[index.y as usize].xyz();
                 let v2 = self.vertices[index.z as usize].xyz();
-                let segment_index = (((self.centroids[indirect_index as usize][axis] - bounds_min) * scale) as usize).min(self.sah_samples - 1);
+                let segment_index = (((self.centroids[triangle_index][axis] - bounds_min) * scale) as usize).min(self.sah_samples - 1);
                 segments[segment_index].aabb.encapsulate(&v0);
                 segments[segment_index].aabb.encapsulate(&v1);
                 segments[segment_index].aabb.encapsulate(&v2);
@@ -276,11 +271,12 @@ impl<'a> BVHBuilder<'a> {
             let mut a = node.first_triangle_index();
             let mut b = a + node.triangle_count() - 1;
             while a <= b {
-                let centroid = self.centroids[self.indirect_indices[a as usize] as usize][best_axis];
+                let centroid = self.centroids[a as usize][best_axis];
                 if centroid < best_split {
                     a += 1;
                 } else {
-                    self.indirect_indices.swap(a as usize, b as usize);
+                    self.indices.swap(a as usize, b as usize);
+                    self.centroids.swap(a as usize, b as usize);
                     b -= 1;
                 }
             }
@@ -313,12 +309,9 @@ impl<'a> BVHBuilder<'a> {
 
         self.nodes.truncate(node_count);
         let nodes_buffer = GpuBuffer::from_slice(&FW, &self.nodes);
-        let indirect_indices_buffer = GpuBuffer::from_slice(&FW, &self.indirect_indices);
         BVH {
             nodes: self.nodes.clone(),
-            indirect_indices: self.indirect_indices.clone(),
             nodes_buffer,
-            indirect_indices_buffer,
         }
     }
 }

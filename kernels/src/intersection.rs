@@ -115,7 +115,6 @@ fn intersect_aabb(aabb_min: Vec3, aabb_max: Vec3, ro: Vec3, rd: Vec3, prev_min_t
 
 pub struct BVHReference<'a> {
     pub nodes: &'a [BVHNode],
-    pub indirect_indices: &'a [u32],
 }
 
 impl<'a> BVHReference<'a> {
@@ -134,8 +133,7 @@ impl<'a> BVHReference<'a> {
 
             if node.is_leaf() {
                 for i in 0..node.triangle_count() {
-                    let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                    let triangle = index_buffer[indirect_index as usize];
+                    let triangle = index_buffer[(node.first_triangle_index() + i) as usize];
                     let a = vertex_buffer[triangle.x as usize].xyz();
                     let b = vertex_buffer[triangle.y as usize].xyz();
                     let c = vertex_buffer[triangle.z as usize].xyz();
@@ -166,8 +164,7 @@ impl<'a> BVHReference<'a> {
             let node = &self.nodes[node_index];
             if node.is_leaf() {
                 for i in 0..node.triangle_count() {
-                    let indirect_index = self.indirect_indices[(node.first_triangle_index() + i) as usize];
-                    let triangle = index_buffer[indirect_index as usize];
+                    let triangle = index_buffer[(node.first_triangle_index() + i) as usize];
                     let a = per_vertex_buffer[triangle.x as usize].vertex.xyz();
                     let b = per_vertex_buffer[triangle.y as usize].vertex.xyz();
                     let c = per_vertex_buffer[triangle.z as usize].vertex.xyz();

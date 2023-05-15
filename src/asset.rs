@@ -186,7 +186,7 @@ impl<'fw> World<'fw> {
 
         // BVH building
         let now = std::time::Instant::now();
-        let bvh = BVHBuilder::new(&vertices, &indices).sah_samples(128).build();
+        let bvh = BVHBuilder::new(&vertices, &mut indices).sah_samples(128).build();
         println!("BVH build time: {:?}", now.elapsed());
         println!("BVH node count: {}", bvh.nodes.len());
 
