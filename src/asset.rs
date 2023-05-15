@@ -4,7 +4,7 @@ use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData};
 
-use crate::{bvh::{BVH, BVHBuilder}, trace::FW};
+use crate::{bvh::{BVH, BVHBuilder}, trace::FW, light_pick};
 
 pub struct World<'fw> {
     pub per_vertex_buffer: GpuBuffer<'fw, PerVertexData>,
@@ -188,7 +188,12 @@ impl<'fw> World<'fw> {
         let now = std::time::Instant::now();
         let bvh = BVHBuilder::new(&vertices, &mut indices).sah_samples(128).build();
         println!("BVH build time: {:?}", now.elapsed());
-        println!("BVH node count: {}", bvh.nodes.len());
+
+        // Build light pick table
+        let now = std::time::Instant::now();
+        let emissive_mask = light_pick::compute_emissive_mask(&indices, &material_datas);
+        light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask);
+        println!("Light pick table build time: {:?}", now.elapsed());
 
         // TODO: Seperate loading from GPU upload
         // Upload to GPU
