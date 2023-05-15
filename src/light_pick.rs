@@ -67,7 +67,7 @@ pub fn build_light_pick_table(vertices: &[Vec4], indices: &[UVec4], mask: &[bool
         })
         .filter(|x| x.probability_a != 0.0)
         .collect::<Vec<_>>();
-    bins.sort_by(|a, b| a.probability_a.partial_cmp(&b.probability_a).unwrap());
+    bins.sort_by(|a, b| a.probability_a.partial_cmp(&b.probability_a).unwrap_or(std::cmp::Ordering::Equal));
 
     // Robin hood - take from the most probable and give to the least probable
     let num_bins = bins.len();
