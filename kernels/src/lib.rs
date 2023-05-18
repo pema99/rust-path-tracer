@@ -3,7 +3,7 @@
 use bsdf::BSDF;
 use glam::*;
 use intersection::BVHReference;
-use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData};
+use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData, LightPickEntry};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam, spirv, Sampler, Image};
@@ -14,6 +14,7 @@ mod util;
 mod intersection;
 mod vec;
 mod skybox;
+mod light_pick;
 
 // TODO: Use flat buffers instead of textures, so we can use the same code for CPU and GPU
 
@@ -27,8 +28,9 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] nodes_buffer: &[BVHNode],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] material_data_buffer: &[MaterialData],
-    #[spirv(descriptor_set = 0, binding = 7)] sampler: &Sampler,
-    #[spirv(descriptor_set = 0, binding = 8)] atlas: &Image!(2D, type=f32, sampled),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] light_pick_buffer: &[LightPickEntry],
+    #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
+    #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
 ) {
     let index = (id.y * config.width + id.x) as usize;
 
@@ -36,6 +38,7 @@ pub fn main_material(
     if id.x > config.width || id.y > config.height {
         return;
     }
+    let nee = id.x < config.width / 2;
 
     let mut rng_state = rng::RngState::new(rng[index]);
 
@@ -81,8 +84,11 @@ pub fn main_material(
             let material_index = trace_result.triangle.w;
             let material = material_data_buffer[material_index as usize];
             if material.emissive.xyz() != Vec3::ZERO {
+                // If we have already sampled lights directly, or this is first bounce, add emissive term
+                if !nee || bounce == 0 {
+                    output[index] += (throughput * material.emissive.xyz()).extend(1.0);
+                }
                 // Emissives don't bounce light
-                output[index] += (throughput * material.emissive.xyz()).extend(1.0);
                 break;
             }
 
@@ -108,6 +114,22 @@ pub fn main_material(
             let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
             let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
+
+            if nee {
+                let direct_lighting = light_pick::sample_direct_lighting(
+                    index_buffer,
+                    per_vertex_buffer,
+                    material_data_buffer,
+                    light_pick_buffer,
+                    &bvh,
+                    &bsdf,
+                    hit,
+                    normal,
+                    ray_direction,
+                    &mut rng_state
+                );
+                output[index] += (throughput * direct_lighting).extend(1.0);
+            }
 
             ray_direction = bsdf_sample.sampled_direction;
             ray_origin = hit + ray_direction * util::EPS;

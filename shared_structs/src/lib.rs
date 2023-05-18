@@ -86,6 +86,23 @@ pub struct PerVertexData {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+pub struct LightPickEntry {
+    pub triangle_index_a: u32,
+    pub triangle_area_a: f32,
+    pub triangle_index_b: u32,
+    pub triangle_area_b: f32,
+    pub ratio: f32,
+}
+
+// wgpu doesn't allow 0-sized buffers, so we use negative ratios to indicate sentinel values
+impl LightPickEntry {
+    pub fn is_sentinel(&self) -> bool {
+        self.ratio < 0.0
+    }
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct BVHNode {
     aabb_min: Vec4, // w = triangle count
