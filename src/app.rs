@@ -11,7 +11,7 @@ use winit::dpi::PhysicalSize;
 
 use glam::{Mat3, Vec3};
 use parking_lot::RwLock;
-use shared_structs::TracingConfig;
+use shared_structs::{TracingConfig, NextEventEstimation};
 
 use crate::trace::trace;
 
@@ -241,13 +241,6 @@ impl App {
                         self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
                         self.dirty.store(true, Ordering::Relaxed);
                     }
-
-                    let mut nee = self.config.read().nee != 0;
-                    if ui.checkbox(&mut nee, "NEE").changed() {
-                        let mut config = self.config.write();
-                        config.nee = if nee { 1 } else { 0 };
-                        self.dirty.store(true, Ordering::Relaxed);
-                    }
                 });
                 ui.end_row();
     
@@ -271,6 +264,21 @@ impl App {
                 });
                 ui.end_row();
 
+                let prev_nee_mode = NextEventEstimation::from_u32(self.config.read().nee);
+                let mut nee_mode = prev_nee_mode;
+                egui::ComboBox::from_label("Next event estimation")
+                    .selected_text(format!("{:?}", nee_mode))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut nee_mode, NextEventEstimation::None, "None");
+                        ui.selectable_value(&mut nee_mode, NextEventEstimation::MultipleImportanceSampling, "Multiple importance sampling");
+                        ui.selectable_value(&mut nee_mode, NextEventEstimation::DirectLightSampling, "Direct light sampling only");
+                    });
+                if nee_mode != prev_nee_mode {
+                    self.config.write().nee = nee_mode.to_u32();
+                    self.dirty.store(true, Ordering::Relaxed);
+                }
+                ui.end_row();
+
                 egui::ComboBox::from_label("Tonemapping operator")
                     .selected_text(format!("{:?}", self.tonemapping))
                     .show_ui(ui, |ui| {
@@ -279,8 +287,7 @@ impl App {
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Neutral, "Neutral");
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Reinhard, "Reinhard");
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Uncharted, "Uncharted");
-                    }
-                );
+                    });
                 ui.end_row();
 
                 let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);

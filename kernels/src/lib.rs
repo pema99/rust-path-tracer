@@ -3,7 +3,7 @@
 use bsdf::BSDF;
 use glam::*;
 use intersection::BVHReference;
-use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData, LightPickEntry};
+use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData, LightPickEntry, NextEventEstimation};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam, spirv, Sampler, Image};
@@ -39,7 +39,8 @@ pub fn main_material(
         return;
     }
 
-    let nee = config.nee != 0;
+    let nee_mode = NextEventEstimation::from_u32(config.nee);
+    let nee = nee_mode.uses_nee();
     let mut rng_state = rng::RngState::new(rng[index]);
 
     // Get anti-aliased pixel coordinates.
@@ -130,6 +131,7 @@ pub fn main_material(
             // Add direct lighting
             if nee && bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
                 let direct_lighting = light_pick::sample_direct_lighting(
+                    nee_mode,
                     index_buffer,
                     per_vertex_buffer,
                     material_data_buffer,

@@ -1,4 +1,4 @@
-use shared_structs::{LightPickEntry, PerVertexData, MaterialData};
+use shared_structs::{LightPickEntry, PerVertexData, MaterialData, NextEventEstimation};
 use spirv_std::glam::{Vec3, UVec4, Vec4Swizzles};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
@@ -35,7 +35,16 @@ pub fn calculate_light_pdf(light_area: f32, light_distance: f32, light_normal: V
     light_distance.powi(2) / (light_area * cos_theta)
 }
 
+pub fn get_weight(nee_mode: NextEventEstimation, p1: f32, p2: f32) -> f32 {
+    match nee_mode {
+        NextEventEstimation::None => 1.0,
+        NextEventEstimation::MultipleImportanceSampling => util::power_heuristic(p1, p2),
+        NextEventEstimation::DirectLightSampling => 1.0,
+    }
+}
+
 pub fn sample_direct_lighting(
+    nee_mode: NextEventEstimation,
     index_buffer: &[UVec4],
     per_vertex_buffer: &[PerVertexData],
     material_data_buffer: &[MaterialData],
@@ -90,7 +99,7 @@ pub fn sample_direct_lighting(
             let bsdf_pdf = surface_bsdf.pdf(-ray_direction, surface_normal, light_direction, bsdf::LobeType::DiffuseReflection);
             if bsdf_pdf > 0.0 {
                 // MIS - add the weighted sample
-                let weight = util::power_heuristic(light_pdf, bsdf_pdf);
+                let weight = get_weight(nee_mode, light_pdf, bsdf_pdf);
                 direct += bsdf_attenuation * light_emission * weight / light_pdf;
             }
         }
@@ -98,19 +107,21 @@ pub fn sample_direct_lighting(
     
     // TODO: Don't do this trace twice! We will do it next iteration of the tracing loop
     // Sample the BSDF using MIS
-    let bsdf_trace = bvh.intersect_front_to_back(
-        per_vertex_buffer,
-        index_buffer,
-        surface_point + surface_sample.sampled_direction * util::EPS,
-        surface_sample.sampled_direction
-    );
-    if bsdf_trace.hit && bsdf_trace.triangle_index == light_index {
-        // Calculate the light pdf for this sample
-        let light_pdf = calculate_light_pdf(light_area, bsdf_trace.t, light_normal, surface_sample.sampled_direction);
-        if light_pdf > 0.0 {
-            // MIS - add the weighted sample
-            let weight = util::power_heuristic(surface_sample.pdf, light_pdf);
-            direct += surface_sample.spectrum * light_emission * weight / surface_sample.pdf;
+    if nee_mode.uses_mis() {
+        let bsdf_trace = bvh.intersect_front_to_back(
+            per_vertex_buffer,
+            index_buffer,
+            surface_point + surface_sample.sampled_direction * util::EPS,
+            surface_sample.sampled_direction
+        );
+        if bsdf_trace.hit && bsdf_trace.triangle_index == light_index {
+            // Calculate the light pdf for this sample
+            let light_pdf = calculate_light_pdf(light_area, bsdf_trace.t, light_normal, surface_sample.sampled_direction);
+            if light_pdf > 0.0 {
+                // MIS - add the weighted sample
+                let weight = get_weight(nee_mode, surface_sample.pdf, light_pdf);
+                direct += surface_sample.spectrum * light_emission * weight / surface_sample.pdf;
+            }
         }
     }
 

@@ -183,3 +183,48 @@ impl BVHNode {
         self.aabb_max.z = aabb_max.z;
     }
 }
+
+#[repr(u32)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NextEventEstimation {
+    None,
+    MultipleImportanceSampling,
+    DirectLightSampling,
+}
+
+impl core::fmt::Debug for NextEventEstimation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            NextEventEstimation::None => write!(f, "None"),
+            NextEventEstimation::MultipleImportanceSampling => write!(f, "MIS"),
+            NextEventEstimation::DirectLightSampling => write!(f, "Direct only"),
+        }
+    }
+}
+
+impl NextEventEstimation {
+    pub fn to_u32(self) -> u32 {
+        match self {
+            NextEventEstimation::None => 0,
+            NextEventEstimation::MultipleImportanceSampling => 1,
+            NextEventEstimation::DirectLightSampling => 2,
+        }
+    }
+
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => NextEventEstimation::None,
+            1 => NextEventEstimation::MultipleImportanceSampling,
+            2 => NextEventEstimation::DirectLightSampling,
+            _ => NextEventEstimation::None,
+        }
+    }
+
+    pub fn uses_mis(&self) -> bool {
+        self == &NextEventEstimation::MultipleImportanceSampling
+    }
+
+    pub fn uses_nee(&self) -> bool {
+        self != &NextEventEstimation::None
+    }
+}
