@@ -8,6 +8,7 @@ Yet another GPU accelerated toy path tracer, but everything is written in Rust (
 - Supports texture mapping. Can load albedo, normal, roughness and metallic maps from scene file.
 - Ray intersections are made fast using a [BVH](https://en.wikipedia.org/wiki/Bounding_volume_hierarchy) built in a binned manner using the [surface area heuristic](https://en.wikipedia.org/wiki/Bounding_interval_hierarchy#Construction).
 - Convergence rate is improved by the use of a [low-discrepancy sequence](http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/) in place of uniform random sampling.
+- Basic [next event estimation](https://www.youtube.com/watch?v=FU1dbi827LY) (direct light sampling).
 - Uses [assimp](https://github.com/assimp/assimp) for scene loading, so can load many scene and model file formats, such as glTF, FBX, obj, etc.
 - Uses a nice procedural atmospheric skybox (thanks @nyrox).
 - Cross platform. Tested on Windows 10 and Arch Linux.
