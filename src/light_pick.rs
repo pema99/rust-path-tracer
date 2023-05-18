@@ -103,8 +103,10 @@ pub fn build_light_pick_table(
         .map(|x| LightPickEntry {
             triangle_index_a: x.index_a as u32,
             triangle_index_b: x.index_b as u32,
+            triangle_pick_pdf_a: triangle_areas[x.index_a] / total_area,
             triangle_area_a: triangle_areas[x.index_a],
             triangle_area_b: triangle_areas[x.index_b],
+            triangle_pick_pdf_b: triangle_areas[x.index_b] / total_area,
             ratio: x.probability_a / (x.probability_a + x.probability_b),
         })
         .collect::<Vec<_>>();

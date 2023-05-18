@@ -241,6 +241,13 @@ impl App {
                         self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
                         self.dirty.store(true, Ordering::Relaxed);
                     }
+
+                    let mut nee = self.config.read().nee != 0;
+                    if ui.checkbox(&mut nee, "NEE").changed() {
+                        let mut config = self.config.write();
+                        config.nee = if nee { 1 } else { 0 };
+                        self.dirty.store(true, Ordering::Relaxed);
+                    }
                 });
                 ui.end_row();
     

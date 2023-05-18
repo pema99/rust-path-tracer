@@ -38,8 +38,8 @@ pub fn main_material(
     if id.x > config.width || id.y > config.height {
         return;
     }
-    let nee = id.x < config.width / 2;
 
+    let nee = config.nee != 0;
     let mut rng_state = rng::RngState::new(rng[index]);
 
     // Get anti-aliased pixel coordinates.
@@ -61,6 +61,7 @@ pub fn main_material(
         nodes: nodes_buffer,
     };
 
+    let mut last_sampled_lobe = bsdf::LobeType::SpecularReflection;
     let mut throughput = Vec3::ONE;
     for bounce in 0..config.max_bounces {
         let trace_result = bvh.intersect_front_to_back(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
@@ -72,34 +73,41 @@ pub fn main_material(
             output[index] += (throughput * skybox::scatter(ray_origin, ray_direction)).extend(1.0);
             break;
         } else {
-            let norm_a = per_vertex_buffer[trace_result.triangle.x as usize].normal.xyz();
-            let norm_b = per_vertex_buffer[trace_result.triangle.y as usize].normal.xyz();
-            let norm_c = per_vertex_buffer[trace_result.triangle.z as usize].normal.xyz();
-            let vert_a = per_vertex_buffer[trace_result.triangle.x as usize].vertex.xyz();
-            let vert_b = per_vertex_buffer[trace_result.triangle.y as usize].vertex.xyz();
-            let vert_c = per_vertex_buffer[trace_result.triangle.z as usize].vertex.xyz();
-            let bary = util::barycentric(hit, vert_a, vert_b, vert_c);
-            let mut normal = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
-
+            // Get material
             let material_index = trace_result.triangle.w;
             let material = material_data_buffer[material_index as usize];
+
+            // Add emission
             if material.emissive.xyz() != Vec3::ZERO {
-                // If we have already sampled lights directly, or this is first bounce, add emissive term
-                if !nee || bounce == 0 {
-                    output[index] += (throughput * material.emissive.xyz()).extend(1.0);
+                // We want to add emissive light if any of these are true:
+                // - We are not doing NEE.
+                // - This is the first bounce (so light sources don't look black).
+                // - This is a non-diffuse bounce (so we don't double count emissive light).
+                if !nee || bounce == 0 || last_sampled_lobe != bsdf::LobeType::DiffuseReflection {
+                    output[index] += util::mask_nan(throughput * material.emissive.xyz()).extend(1.0);
                 }
                 // Emissives don't bounce light
                 break;
             }
 
+            // Interpolate vertex data
+            let vert_a = per_vertex_buffer[trace_result.triangle.x as usize].vertex.xyz();
+            let vert_b = per_vertex_buffer[trace_result.triangle.y as usize].vertex.xyz();
+            let vert_c = per_vertex_buffer[trace_result.triangle.z as usize].vertex.xyz();
+            let norm_a = per_vertex_buffer[trace_result.triangle.x as usize].normal.xyz();
+            let norm_b = per_vertex_buffer[trace_result.triangle.y as usize].normal.xyz();
+            let norm_c = per_vertex_buffer[trace_result.triangle.z as usize].normal.xyz();
             let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
             let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
             let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
+            let bary = util::barycentric(hit, vert_a, vert_b, vert_c);
+            let mut normal = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
             let mut uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
             if uv.clamp(Vec2::ZERO, Vec2::ONE) != uv {
-                uv = uv.fract();
+                uv = uv.fract(); // wrap UVs
             }
-            
+
+            // Apply normal map
             if material.has_normal_texture() {
                 let scaled_uv = material.normals.xy() + uv * material.normals.zw();
                 let normal_map = atlas.sample_by_lod(*sampler, scaled_uv, 0.0) * 2.0 - 1.0;
@@ -111,11 +119,16 @@ pub fn main_material(
                 normal = (tbn * normal_map.xyz()).normalize();
             }
             
+            // Sample BSDF
             let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
             let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
+            last_sampled_lobe = bsdf_sample.sampled_lobe;
+
+            // Attenuate by BSDF
             throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 
-            if nee {
+            // Add direct lighting
+            if nee && bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
                 let direct_lighting = light_pick::sample_direct_lighting(
                     index_buffer,
                     per_vertex_buffer,
@@ -125,12 +138,14 @@ pub fn main_material(
                     &bsdf,
                     hit,
                     normal,
+                    &bsdf_sample,
                     ray_direction,
                     &mut rng_state
                 );
                 output[index] += (throughput * direct_lighting).extend(1.0);
             }
 
+            // Update ray
             ray_direction = bsdf_sample.sampled_direction;
             ray_origin = hit + ray_direction * util::EPS;
 
