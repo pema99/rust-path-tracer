@@ -38,6 +38,7 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.light_pick_buffer, GpuBufferUsage::ReadOnly)
             .bind_sampler(&sampler)
             .bind_const_image(&world.atlas);
         let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);

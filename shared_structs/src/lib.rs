@@ -12,6 +12,10 @@ pub struct TracingConfig {
     pub height: u32,
     pub min_bounces: u32,
     pub max_bounces: u32,
+    pub nee: u32,
+    pub _padding0: u32,
+    pub _padding1: u32,
+    pub _padding2: u32,
 }
 
 impl Default for TracingConfig {
@@ -23,6 +27,10 @@ impl Default for TracingConfig {
             height: 720,
             min_bounces: 3,
             max_bounces: 4,
+            nee: 0,
+            _padding0: 0,
+            _padding1: 0,
+            _padding2: 0,
         }
     }
 }
@@ -83,6 +91,25 @@ pub struct PerVertexData {
     pub tangent: Vec4,
     pub uv0: Vec2,
     pub uv1: Vec2,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+pub struct LightPickEntry {
+    pub triangle_index_a: u32,
+    pub triangle_area_a: f32,
+    pub triangle_pick_pdf_a: f32,
+    pub triangle_index_b: u32,
+    pub triangle_area_b: f32,
+    pub triangle_pick_pdf_b: f32,
+    pub ratio: f32,
+}
+
+// wgpu doesn't allow 0-sized buffers, so we use negative ratios to indicate sentinel values
+impl LightPickEntry {
+    pub fn is_sentinel(&self) -> bool {
+        self.ratio < 0.0
+    }
 }
 
 #[repr(C)]

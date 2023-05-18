@@ -2,7 +2,7 @@ use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
 use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
-use shared_structs::{MaterialData, PerVertexData};
+use shared_structs::{MaterialData, PerVertexData, LightPickEntry};
 
 use crate::{bvh::{BVH, BVHBuilder}, trace::FW, light_pick};
 
@@ -13,6 +13,8 @@ pub struct World<'fw> {
 
     pub atlas: GpuConstImage<'fw, Rgba8UintNorm>,
     pub material_data_buffer: GpuBuffer<'fw, MaterialData>,    
+    
+    pub light_pick_buffer: GpuBuffer<'fw, LightPickEntry>,
 }
 
 fn convert_texture(texture: &Texture) -> Option<DynamicImage> {
@@ -182,7 +184,6 @@ impl<'fw> World<'fw> {
                 material_data.normals = sts.remove(0);
             }
         }
-
         let material_data_buffer = GpuBuffer::from_slice(&FW, &material_datas);
 
         // BVH building
@@ -193,7 +194,8 @@ impl<'fw> World<'fw> {
         // Build light pick table
         let now = std::time::Instant::now();
         let emissive_mask = light_pick::compute_emissive_mask(&indices, &material_datas);
-        light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask);
+        let light_pick_table = light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask);
+        let light_pick_buffer = GpuBuffer::from_slice(&FW, &light_pick_table);
         println!("Light pick table build time: {:?}", now.elapsed());
 
         // TODO: Seperate loading from GPU upload
@@ -216,6 +218,7 @@ impl<'fw> World<'fw> {
             bvh,
             atlas,
             material_data_buffer,
+            light_pick_buffer,
         }
     }
 }

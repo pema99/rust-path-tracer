@@ -250,6 +250,16 @@ pub fn barycentric(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     Vec3::new(1.0 - v - w, v, w)
 }
 
+pub fn power_heuristic(p1: f32, p2: f32) -> f32 {
+    let p1_2 = p1 * p1;
+    p1_2 / (p1_2 + p2 * p2)
+}
+
+#[allow(dead_code)]
+pub fn balance_heuristic(p1: f32, p2: f32) -> f32 {
+    p1 / (p1 + p2)
+}
+
 pub fn positive_characteristic(x: f32) -> f32 {
     if x > 0.0 {
         1.0

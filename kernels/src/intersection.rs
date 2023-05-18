@@ -53,16 +53,18 @@ fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f3
 }
 
 pub struct TraceResult {
-    pub t: f32,
     pub triangle: UVec4,
+    pub triangle_index: u32,
+    pub t: f32,
     pub hit: bool,
 }
 
 impl Default for TraceResult {
     fn default() -> Self {
         Self {
-            t: 1000000.0,
             triangle: UVec4::splat(0),
+            triangle_index: 0,
+            t: 1000000.0,
             hit: false,
         }
     }
@@ -84,8 +86,9 @@ fn intersect_slow_as_shit(
 
         let mut t = 0.0;
         if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
-            result.t = result.t.min(t);
             result.triangle = triangle;
+            result.triangle_index = i as u32;
+            result.t = result.t.min(t);
             result.hit = true;
         }
     }
@@ -133,15 +136,17 @@ impl<'a> BVHReference<'a> {
 
             if node.is_leaf() {
                 for i in 0..node.triangle_count() {
-                    let triangle = index_buffer[(node.first_triangle_index() + i) as usize];
+                    let triangle_index = node.first_triangle_index() + i;
+                    let triangle = index_buffer[triangle_index as usize];
                     let a = vertex_buffer[triangle.x as usize].xyz();
                     let b = vertex_buffer[triangle.y as usize].xyz();
                     let c = vertex_buffer[triangle.z as usize].xyz();
     
                     let mut t = 0.0;
                     if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
-                        result.t = result.t.min(t);
                         result.triangle = triangle;
+                        result.triangle_index = triangle_index;
+                        result.t = result.t.min(t);
                         result.hit = true;
                     }
                 }
@@ -164,15 +169,17 @@ impl<'a> BVHReference<'a> {
             let node = &self.nodes[node_index];
             if node.is_leaf() {
                 for i in 0..node.triangle_count() {
-                    let triangle = index_buffer[(node.first_triangle_index() + i) as usize];
+                    let triangle_index = node.first_triangle_index() + i;
+                    let triangle = index_buffer[triangle_index as usize];
                     let a = per_vertex_buffer[triangle.x as usize].vertex.xyz();
                     let b = per_vertex_buffer[triangle.y as usize].vertex.xyz();
                     let c = per_vertex_buffer[triangle.z as usize].vertex.xyz();
     
                     let mut t = 0.0;
                     if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
-                        result.t = result.t.min(t);
                         result.triangle = triangle;
+                        result.triangle_index = triangle_index;
+                        result.t = result.t.min(t);
                         result.hit = true;
                     }
                 }
