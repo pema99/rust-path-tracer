@@ -9,7 +9,6 @@ use crate::vec::FixedVec;
 fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f32, out_backface: &mut bool) -> bool
 {
     *out_t = 0.0;
-    *out_backface = false;
 
     let edge1 = b - a;
     let edge2 = c - a;
@@ -20,7 +19,7 @@ fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f3
     // if determinant is near zero, ray lies in plane of triangle
     let det = edge1.dot(pv);
     *out_backface = det.is_negative();
-    
+
     if det.abs() < 1e-6 {
         return false;
     }
