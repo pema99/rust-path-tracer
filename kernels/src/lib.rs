@@ -125,9 +125,6 @@ pub fn main_material(
             let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
             last_sampled_lobe = bsdf_sample.sampled_lobe;
 
-            // Attenuate by BSDF
-            throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
-
             // Add direct lighting
             if nee && bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
                 let direct_lighting = light_pick::sample_direct_lighting(
@@ -146,6 +143,9 @@ pub fn main_material(
                 );
                 output[index] += (throughput * direct_lighting).extend(1.0);
             }
+
+            // Attenuate by BSDF
+            throughput *= bsdf_sample.spectrum / bsdf_sample.pdf;
 
             // Update ray
             ray_direction = bsdf_sample.sampled_direction;
