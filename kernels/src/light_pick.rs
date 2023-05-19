@@ -71,7 +71,10 @@ pub fn calculate_light_pdf(light_area: f32, light_distance: f32, light_normal: V
     When we don't pass a visibility check (ie. the chosen light point is occluded), we simply don't add the contribution, since the
     probability of hitting that point is 0. When we have multiple light sources, we simply pick one at random and divide the contribution
     by the probability of picking the given light source. This is just splitting the estimator into multiple addends. */
-    let cos_theta = light_normal.dot(-light_direction).abs(); // .abs() because we treat emissive triangles as double-sided
+    let cos_theta = light_normal.dot(-light_direction);
+    if cos_theta <= 0.0 {
+        return 0.0;
+    }
     light_distance.powi(2) / (light_area * cos_theta)
 }
 

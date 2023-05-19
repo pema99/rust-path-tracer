@@ -84,7 +84,8 @@ pub fn main_material(
                 // - We are not doing NEE.
                 // - This is the first bounce (so light sources don't look black).
                 // - This is a non-diffuse bounce (so we don't double count emissive light).
-                if !nee || bounce == 0 || last_sampled_lobe != bsdf::LobeType::DiffuseReflection {
+                // AND we aren't hitting a backface (to match direct light sampling behavior).
+                if !trace_result.backface && (!nee || bounce == 0 || last_sampled_lobe != bsdf::LobeType::DiffuseReflection) {
                     output[index] += util::mask_nan(throughput * material.emissive.xyz()).extend(1.0);
                 }
                 // Emissives don't bounce light

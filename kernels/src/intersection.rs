@@ -1,14 +1,15 @@
 use shared_structs::{BVHNode, PerVertexData};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
-use spirv_std::glam::{UVec4, Vec4, Vec3, Vec4Swizzles};
+use spirv_std::{glam::{UVec4, Vec4, Vec3, Vec4Swizzles}, num_traits::Signed};
 
 use crate::vec::FixedVec;
 
 // Adapted from raytri.c
-fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f32) -> bool
+fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f32, out_backface: &mut bool) -> bool
 {
     *out_t = 0.0;
+    *out_backface = false;
 
     let edge1 = b - a;
     let edge2 = c - a;
@@ -18,7 +19,8 @@ fn muller_trumbore(ro: Vec3, rd: Vec3, a: Vec3, b: Vec3, c: Vec3, out_t: &mut f3
  
     // if determinant is near zero, ray lies in plane of triangle
     let det = edge1.dot(pv);
- 
+    *out_backface = det.is_negative();
+    
     if det.abs() < 1e-6 {
         return false;
     }
@@ -57,6 +59,7 @@ pub struct TraceResult {
     pub triangle_index: u32,
     pub t: f32,
     pub hit: bool,
+    pub backface: bool,
 }
 
 impl Default for TraceResult {
@@ -66,6 +69,7 @@ impl Default for TraceResult {
             triangle_index: 0,
             t: 1000000.0,
             hit: false,
+            backface: false,
         }
     }
 }
@@ -85,11 +89,13 @@ fn intersect_slow_as_shit(
         let c = vertex_buffer[triangle.z as usize].xyz();
 
         let mut t = 0.0;
-        if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
+        let mut backface = false;
+        if muller_trumbore(ro, rd, a, b, c, &mut t, &mut backface) && t > 0.001 && t < result.t {
             result.triangle = triangle;
             result.triangle_index = i as u32;
             result.t = result.t.min(t);
             result.hit = true;
+            result.backface = backface;
         }
     }
     result
@@ -143,11 +149,13 @@ impl<'a> BVHReference<'a> {
                     let c = vertex_buffer[triangle.z as usize].xyz();
     
                     let mut t = 0.0;
-                    if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
+                    let mut backface = false;
+                    if muller_trumbore(ro, rd, a, b, c, &mut t, &mut backface) && t > 0.001 && t < result.t {
                         result.triangle = triangle;
                         result.triangle_index = triangle_index;
                         result.t = result.t.min(t);
                         result.hit = true;
+                        result.backface = backface;
                     }
                 }
             } else {
@@ -176,11 +184,13 @@ impl<'a> BVHReference<'a> {
                     let c = per_vertex_buffer[triangle.z as usize].vertex.xyz();
     
                     let mut t = 0.0;
-                    if muller_trumbore(ro, rd, a, b, c, &mut t) && t > 0.001 && t < result.t {
+                    let mut backface = false;
+                    if muller_trumbore(ro, rd, a, b, c, &mut t, &mut backface) && t > 0.001 && t < result.t {
                         result.triangle = triangle;
                         result.triangle_index = triangle_index;
                         result.t = result.t.min(t);
                         result.hit = true;
+                        result.backface = backface;
                     }
                 }
             } else {
