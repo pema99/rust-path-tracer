@@ -63,6 +63,7 @@ pub fn main_material(
     };
 
     let mut throughput = Vec3::ONE;
+    let mut radiance = Vec3::ZERO;
     let mut last_bsdf_sample = bsdf::BSDFSample::default();
     let mut last_light_sample = light_pick::DirectLightSample::default(); 
 
@@ -72,7 +73,7 @@ pub fn main_material(
 
         if !trace_result.hit {
             // skybox
-            output[index] += (throughput * skybox::scatter(ray_origin, ray_direction)).extend(1.0);
+            radiance += throughput * skybox::scatter(ray_origin, ray_direction);
             break;
         } else {
             // Get material
@@ -92,7 +93,7 @@ pub fn main_material(
                 // - This is a non-diffuse bounce (so we don't double count emissive light).
                 // AND we aren't hitting a backface (to match direct light sampling behavior).
                 if !nee || bounce == 0 || last_bsdf_sample.sampled_lobe != bsdf::LobeType::DiffuseReflection {
-                    output[index] += util::mask_nan(throughput * material.emissive.xyz()).extend(1.0);
+                    radiance += util::mask_nan(throughput * material.emissive.xyz());
                     break;
                 }
 
@@ -100,7 +101,7 @@ pub fn main_material(
                 // to add the BSDF contribution, weighted by MIS.
                 if nee_mode.uses_mis() && last_bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
                     let direct_contribution = light_pick::calculate_bsdf_mis_contribution(&trace_result, &last_bsdf_sample, &last_light_sample);
-                    output[index] += util::mask_nan(direct_contribution).extend(1.0);
+                    radiance += util::mask_nan(direct_contribution);
                     break;
                 }
             }
@@ -155,7 +156,7 @@ pub fn main_material(
                     ray_direction,
                     &mut rng_state
                 );
-                output[index] += util::mask_nan(last_light_sample.direct_light_contribution).extend(1.0);
+                radiance += util::mask_nan(last_light_sample.direct_light_contribution);
             }
 
             // Attenuate by BSDF
@@ -176,5 +177,6 @@ pub fn main_material(
         }
     }
 
+    output[index] += radiance.extend(1.0);
     rng[index] = rng_state.next_state();
 }
