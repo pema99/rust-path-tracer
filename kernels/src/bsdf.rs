@@ -7,16 +7,16 @@ use crate::{rng, util::{self}};
 
 type Spectrum = Vec3;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq)]
 #[repr(u32)]
 pub enum LobeType {
-    DiffuseReflection,
+    #[default] DiffuseReflection,
     SpecularReflection,
     #[allow(dead_code)] DiffuseTransmission,
     SpecularTransmission,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Default, Copy, Clone)]
 pub struct BSDFSample {
     pub pdf: f32,
     pub sampled_lobe: LobeType,
