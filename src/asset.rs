@@ -156,8 +156,8 @@ impl<'fw> World<'fw> {
                 current_material_data.albedo = Vec4::new(col[0], col[1], col[2], col[3]);
             }
             if let Some(col) = load_float_array(&material, "$clr.emissive") {
-                // HACK: Multiply by 20 since assimp 5.2.5 doesn't support emissive strength :(
-                current_material_data.emissive = Vec4::new(col[0], col[1], col[2], col[3]) * 5.0;
+                // HACK: Multiply by 15 since assimp 5.2.5 doesn't support emissive strength :(
+                current_material_data.emissive = Vec4::new(col[0], col[1], col[2], col[3]) * 15.0;
             }
             if let Some(col) = load_float_array(&material, "$mat.metallicFactor") {
                 current_material_data.metallic = Vec4::splat(col[0]);

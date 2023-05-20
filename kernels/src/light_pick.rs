@@ -3,7 +3,7 @@ use spirv_std::glam::{Vec3, UVec4, Vec4Swizzles};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
-use crate::{rng::RngState, util, bsdf::{self, BSDF, BSDFSample}, intersection::BVHReference};
+use crate::{rng::RngState, util, bsdf::{self, BSDF}, intersection::{BVHReference, self}};
 
 pub fn pick_light(table: &[LightPickEntry], rng_state: &mut RngState) -> (u32, f32, f32) {
     let rng = rng_state.gen_r2();
@@ -86,6 +86,17 @@ pub fn get_weight(nee_mode: NextEventEstimation, p1: f32, p2: f32) -> f32 {
     }
 }
 
+#[derive(Default, Copy, Clone)]
+pub struct DirectLightSample {
+    pub light_area: f32,
+    pub light_normal: Vec3,
+    pub light_pick_pdf: f32,
+    pub light_emission: Vec3,
+    pub light_triangle_index: u32,
+    pub throughput: Vec3,
+    pub direct_light_contribution: Vec3,
+}
+
 pub fn sample_direct_lighting(
     nee_mode: NextEventEstimation,
     index_buffer: &[UVec4],
@@ -93,17 +104,17 @@ pub fn sample_direct_lighting(
     material_data_buffer: &[MaterialData],
     light_pick_buffer: &[LightPickEntry],
     bvh: &BVHReference,
+    throughput: Vec3,
     surface_bsdf: &impl BSDF,
     surface_point: Vec3,
     surface_normal: Vec3,
-    surface_sample: &BSDFSample,
     ray_direction: Vec3,
-    rng_state: &mut RngState
-) -> Vec3 {
+    rng_state: &mut RngState,
+) -> DirectLightSample {
     // If the first entry is a sentinel, there are no lights
-    let mut direct = Vec3::ZERO;
+    let mut info = DirectLightSample::default();
     if light_pick_buffer[0].is_sentinel() {
-        return direct;
+        return info;
     }
 
     // Pick a light, get its surface properties
@@ -126,6 +137,7 @@ pub fn sample_direct_lighting(
     let light_direction = light_direction_unorm / light_distance;
 
     // Sample the light directly using MIS
+    let mut direct = Vec3::ZERO;
     let light_trace = bvh.intersect_front_to_back(
         per_vertex_buffer,
         index_buffer,
@@ -143,31 +155,44 @@ pub fn sample_direct_lighting(
             if bsdf_pdf > 0.0 {
                 // MIS - add the weighted sample
                 let weight = get_weight(nee_mode, light_pdf, bsdf_pdf);
-                direct += bsdf_attenuation * light_emission * weight / light_pdf;
-            }
-        }
-    }
-    
-    // TODO: Don't do this trace twice! We will do it next iteration of the tracing loop
-    // Sample the BSDF using MIS
-    if nee_mode.uses_mis() {
-        let bsdf_trace = bvh.intersect_front_to_back(
-            per_vertex_buffer,
-            index_buffer,
-            surface_point + surface_sample.sampled_direction * util::EPS,
-            surface_sample.sampled_direction
-        );
-        if bsdf_trace.hit && bsdf_trace.triangle_index == light_index {
-            // Calculate the light pdf for this sample
-            let light_pdf = calculate_light_pdf(light_area, bsdf_trace.t, light_normal, surface_sample.sampled_direction);
-            if light_pdf > 0.0 {
-                // MIS - add the weighted sample
-                let weight = get_weight(nee_mode, surface_sample.pdf, light_pdf);
-                direct += surface_sample.spectrum * light_emission * weight / surface_sample.pdf;
+                direct = (bsdf_attenuation * light_emission * weight / light_pdf) / light_pick_pdf;
             }
         }
     }
 
-    // Add the direct contribution, weighted by the probability of picking this light
-    direct / light_pick_pdf
+    // Write out data for the next bounce to use
+    info.light_area = light_area;
+    info.light_normal = light_normal;
+    info.light_pick_pdf = light_pick_pdf;
+    info.light_emission = light_emission;
+    info.light_triangle_index = light_index;
+    info.throughput = throughput;
+    info.direct_light_contribution = throughput * direct;
+    info
+}
+
+// If this is being called, the assumption is that:
+// - We are using NEE with MIS
+// - We have hit a light source
+// - That last bounce was diffuse, so we did direct light sampling
+pub fn calculate_bsdf_mis_contribution(
+    trace_result: &intersection::TraceResult,
+    last_bsdf_sample: &bsdf::BSDFSample,
+    last_light_sample: &DirectLightSample
+) -> Vec3 {
+    // If we haven't hit the same light as we sampled directly, no contribution
+    if trace_result.triangle_index != last_light_sample.light_triangle_index {
+        return Vec3::ZERO;
+    }
+
+    // Calculate the light pdf for this sample
+    let light_pdf = calculate_light_pdf(last_light_sample.light_area, trace_result.t, last_light_sample.light_normal, last_bsdf_sample.sampled_direction);
+    if light_pdf > 0.0 {
+        // MIS - add the weighted sample
+        let weight = get_weight(NextEventEstimation::MultipleImportanceSampling, last_bsdf_sample.pdf, light_pdf);
+        let direct = (last_bsdf_sample.spectrum * last_light_sample.light_emission * weight / last_bsdf_sample.pdf) / last_light_sample.light_pick_pdf;
+        last_light_sample.throughput * direct
+    } else {
+        Vec3::ZERO
+    }
 }

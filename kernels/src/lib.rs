@@ -62,11 +62,12 @@ pub fn main_material(
         nodes: nodes_buffer,
     };
 
-    let mut last_sampled_lobe = bsdf::LobeType::SpecularReflection;
     let mut throughput = Vec3::ONE;
+    let mut last_bsdf_sample = bsdf::BSDFSample::default();
+    let mut last_light_sample = light_pick::DirectLightSample::default(); 
+
     for bounce in 0..config.max_bounces {
         let trace_result = bvh.intersect_front_to_back(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
-        //let trace_result = trace_slow_as_shit(vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
 
         if !trace_result.hit {
@@ -80,16 +81,28 @@ pub fn main_material(
 
             // Add emission
             if material.emissive.xyz() != Vec3::ZERO {
-                // We want to add emissive light if any of these are true:
-                // - We are not doing NEE.
+                // Emissive triangles are single-sided
+                if trace_result.backface {
+                    break; // Break since emissives don't bounce light
+                }
+
+                // We want to add emissive contribution if:
+                // - We are not doing NEE at all.
                 // - This is the first bounce (so light sources don't look black).
                 // - This is a non-diffuse bounce (so we don't double count emissive light).
                 // AND we aren't hitting a backface (to match direct light sampling behavior).
-                if !trace_result.backface && (!nee || bounce == 0 || last_sampled_lobe != bsdf::LobeType::DiffuseReflection) {
+                if !nee || bounce == 0 || last_bsdf_sample.sampled_lobe != bsdf::LobeType::DiffuseReflection {
                     output[index] += util::mask_nan(throughput * material.emissive.xyz()).extend(1.0);
+                    break;
                 }
-                // Emissives don't bounce light
-                break;
+
+                // If we have hit a light source, and we are using NEE with MIS, we use last bounces data
+                // to add the BSDF contribution, weighted by MIS.
+                if nee_mode.uses_mis() && last_bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
+                    let direct_contribution = light_pick::calculate_bsdf_mis_contribution(&trace_result, &last_bsdf_sample, &last_light_sample);
+                    output[index] += util::mask_nan(direct_contribution).extend(1.0);
+                    break;
+                }
             }
 
             // Interpolate vertex data
@@ -124,25 +137,25 @@ pub fn main_material(
             // Sample BSDF
             let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
             let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
-            last_sampled_lobe = bsdf_sample.sampled_lobe;
+            last_bsdf_sample = bsdf_sample;
 
-            // Add direct lighting
+            // Sample lights directly
             if nee && bsdf_sample.sampled_lobe == bsdf::LobeType::DiffuseReflection {
-                let direct_lighting = light_pick::sample_direct_lighting(
+                last_light_sample = light_pick::sample_direct_lighting(
                     nee_mode,
                     index_buffer,
                     per_vertex_buffer,
                     material_data_buffer,
                     light_pick_buffer,
                     &bvh,
+                    throughput,
                     &bsdf,
                     hit,
                     normal,
-                    &bsdf_sample,
                     ray_direction,
                     &mut rng_state
                 );
-                output[index] += (throughput * direct_lighting).extend(1.0);
+                output[index] += util::mask_nan(last_light_sample.direct_light_contribution).extend(1.0);
             }
 
             // Attenuate by BSDF
