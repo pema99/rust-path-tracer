@@ -194,7 +194,7 @@ impl<'fw> World<'fw> {
         // Build light pick table
         let now = std::time::Instant::now();
         let emissive_mask = light_pick::compute_emissive_mask(&indices, &material_datas);
-        let light_pick_table = light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask);
+        let light_pick_table = light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask, &material_datas);
         let light_pick_buffer = GpuBuffer::from_slice(&FW, &light_pick_table);
         println!("Light pick table build time: {:?}", now.elapsed());
 
