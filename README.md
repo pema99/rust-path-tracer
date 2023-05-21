@@ -38,5 +38,6 @@ GPU kernel code is in `kernels/`, code shared between GPU and CPU is in `shared_
 ![](image.png)
 ![image](https://user-images.githubusercontent.com/11212115/236666588-51cb006b-a1c6-4688-b49a-9dfc906cfa6c.png)
 ![image](https://github.com/pema99/rust-path-tracer/assets/11212115/7ba5c1bc-5d85-4e8e-b155-bd2233bad7e2)
+![image](https://github.com/pema99/rust-path-tracer/assets/11212115/ba63c245-60a2-4eb5-990c-9d2a2e4d5449)
 ![image](https://user-images.githubusercontent.com/11212115/236580283-10b90b04-48fd-4863-95df-ca5f27afff26.png)
 ![image](https://user-images.githubusercontent.com/11212115/236580256-e1bda1b2-37fb-461d-919d-3a3c037eb955.png)
