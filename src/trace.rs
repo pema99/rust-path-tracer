@@ -1,7 +1,7 @@
 const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
 const BLUE_BYTES: &'static [u8] = include_bytes!("resources/bluenoise.png");
 lazy_static::lazy_static! {
-    pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
+    pub static ref FW: gpgpu::Framework = make_framework();
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
@@ -10,6 +10,7 @@ use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
 use image::{RgbaImage, io::Reader};
+use pollster::FutureExt;
 pub use shared_structs::TracingConfig;
 use std::{sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -18,6 +19,21 @@ use std::{sync::{
 use parking_lot::RwLock;
 
 use crate::asset::World;
+
+fn make_framework() -> gpgpu::Framework {
+    let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
+    let power_preference = wgpu::util::power_preference_from_env()
+        .unwrap_or(wgpu::PowerPreference::HighPerformance);
+    let instance = wgpu::Instance::new(backend);
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference,
+            ..Default::default()
+        })
+        .block_on()
+        .expect("Failed at adapter creation.");
+    gpgpu::Framework::new(adapter, std::time::Duration::from_millis(1)).block_on()
+}
 
 struct PathTracingKernel<'fw>(Kernel<'fw>);
 
