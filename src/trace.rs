@@ -120,6 +120,7 @@ pub fn trace(
         let sync_rate = if interacting { 1 } else { sync_rate.load(Ordering::Relaxed) };
         for _ in 0..sync_rate {
             rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
+            FW.poll_blocking();
         }
         samples.fetch_add(sync_rate, Ordering::Relaxed);
 

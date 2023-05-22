@@ -9,7 +9,7 @@ shared_structs = { path = "shared_structs" }
 kernels = { path = "kernels" }
 bytemuck = { version = "1.13.1", features = ["derive"] }
 glam = { version = "0.22.0", features = ["bytemuck"] }
-gpgpu = { git = "https://github.com/pema99/gpgpu-rs.git", branch = "samplers", features = ["image", "integrate-image"] }
+gpgpu = { git = "https://github.com/pema99/gpgpu-rs.git", branch = "explicit-polling", features = ["image", "integrate-image"] }
 rand = "0.8.5"
 oidn = { version = "1.4.3", optional = true }
 lazy_static = "1.4.0"

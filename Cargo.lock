@@ -902,7 +902,7 @@ dependencies = [
 [[package]]
 name = "gpgpu"
 version = "0.2.0"
-source = "git+https://github.com/pema99/gpgpu-rs.git?branch=samplers#bc39f278e5d42316040bac936a0bc3d21920915f"
+source = "git+https://github.com/pema99/gpgpu-rs.git?branch=explicit-polling#dd909885189c6f570a1b40454d04c6331a6e5086"
 dependencies = [
  "bytemuck",
  "cfg-if",
