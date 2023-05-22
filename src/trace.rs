@@ -1,14 +1,11 @@
 const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
 const BLUE_BYTES: &'static [u8] = include_bytes!("resources/bluenoise.png");
 lazy_static::lazy_static! {
-    pub static ref FW: gpgpu::Framework = gpgpu::Framework::default();
+    pub static ref FW: gpgpu2::GpuContext = gpgpu2::GpuContext::default();
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
 use glam::{UVec2, Vec4};
-use gpgpu::{
-    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
-};
 use image::{RgbaImage, io::Reader};
 pub use shared_structs::TracingConfig;
 use std::{sync::{
@@ -17,33 +14,30 @@ use std::{sync::{
 }, io::Cursor};
 use parking_lot::RwLock;
 
-use crate::asset::World;
+use crate::{asset::World, gpgpu2::{self, GPU_BUFFER_USAGES}};
 
-struct PathTracingKernel<'fw>(Kernel<'fw>);
+struct PathTracingKernel<'fw>(gpgpu2::GpuKernel<'fw>);
 
 impl<'fw> PathTracingKernel<'fw> {
     fn new(
-        config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
-        rng_buffer: &GpuBuffer<'fw, UVec2>,
-        output_buffer: &GpuBuffer<'fw, Vec4>,
+        config_buffer: &gpgpu2::GpuBuffer<'fw, TracingConfig>,
+        rng_buffer: &gpgpu2::GpuBuffer<'fw, UVec2>,
+        output_buffer: &gpgpu2::GpuBuffer<'fw, Vec4>,
         world: &World<'fw>,
     ) -> Self {
-        let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
-        let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
-        let bindings = DescriptorSet::default()
+        let sampler = gpgpu2::GpuSampler::new(&FW, wgpu::AddressMode::ClampToEdge, wgpu::FilterMode::Linear);
+        let kernel = gpgpu2::GpuKernelBuilder::new(&FW, KERNEL, "main_material")
             .bind_uniform_buffer(config_buffer)
-            .bind_buffer(rng_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(output_buffer, GpuBufferUsage::ReadWrite)
-            .bind_buffer(&world.per_vertex_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
-            .bind_buffer(&world.light_pick_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(rng_buffer, true)
+            .bind_buffer(output_buffer, true)
+            .bind_buffer(&world.per_vertex_buffer, false)
+            .bind_buffer(&world.index_buffer, false)
+            .bind_buffer(&world.bvh.nodes_buffer, false)
+            .bind_buffer(&world.material_data_buffer, false)
+            .bind_buffer(&world.light_pick_buffer, false)
             .bind_sampler(&sampler)
-            .bind_const_image(&world.atlas);
-        let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
-        let kernel = Kernel::new(&FW, program);
-
+            .bind_image(&world.atlas)
+            .build();
         Self(kernel)
     }
 }
@@ -89,9 +83,9 @@ pub fn trace(
     }
 
     let pixel_count = (screen_width * screen_height) as u64;
-    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config.read().clone()]);
-    let rng_buffer = GpuBuffer::from_slice(&FW, if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
-    let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
+    let config_buffer = gpgpu2::GpuBuffer::new(&FW, &[config.read().clone()], gpgpu2::GPU_UNIFORM_USAGES);
+    let rng_buffer = gpgpu2::GpuBuffer::new(&FW, if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }, gpgpu2::GPU_BUFFER_USAGES);
+    let output_buffer = gpgpu2::GpuBuffer::new(&FW, &vec![Vec4::ZERO; pixel_count as usize], gpgpu2::GPU_BUFFER_USAGES);
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
@@ -108,7 +102,7 @@ pub fn trace(
         samples.fetch_add(sync_rate, Ordering::Relaxed);
 
         // Readback from GPU
-        output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
+        output_buffer.read(&mut image_buffer_raw);
         let sample_count = samples.load(Ordering::Relaxed) as f32;
         for (i, col) in image_buffer_raw.iter().enumerate() {
             image_buffer[i * 3 + 0] = col.x / sample_count;
@@ -129,9 +123,9 @@ pub fn trace(
         if interacting {
             dirty.store(false, Ordering::Relaxed);
             samples.store(0, Ordering::Relaxed);
-            config_buffer.write(&[config.read().clone()]).unwrap();
-            output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
-            rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
+            config_buffer.write(&[config.read().clone()]);
+            output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]);
+            rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
         }
     }
 }

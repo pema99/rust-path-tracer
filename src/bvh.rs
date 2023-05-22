@@ -1,7 +1,7 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
-use gpgpu::{GpuBuffer, BufOps};
 use shared_structs::{BVHNode};
 
+use crate::gpgpu2::{GpuBuffer, self};
 use crate::trace::FW;
 
 // TODO: Use triangle buffer directly instead of 2 indirections
@@ -308,7 +308,7 @@ impl<'a> BVHBuilder<'a> {
         }
 
         self.nodes.truncate(node_count);
-        let nodes_buffer = GpuBuffer::from_slice(&FW, &self.nodes);
+        let nodes_buffer = GpuBuffer::new(&FW, &self.nodes, gpgpu2::GPU_BUFFER_USAGES);
         BVH {
             nodes: self.nodes.clone(),
             nodes_buffer,

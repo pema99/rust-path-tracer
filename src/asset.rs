@@ -1,20 +1,19 @@
 use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
-use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData, LightPickEntry};
 
-use crate::{bvh::{BVH, BVHBuilder}, trace::FW, light_pick};
+use crate::{bvh::{BVH, BVHBuilder}, trace::FW, light_pick, gpgpu2::{self, GpuFloatImage}};
 
 pub struct World<'fw> {
-    pub per_vertex_buffer: GpuBuffer<'fw, PerVertexData>,
-    pub index_buffer: GpuBuffer<'fw, UVec4>,
+    pub per_vertex_buffer: gpgpu2::GpuBuffer<'fw, PerVertexData>,
+    pub index_buffer: gpgpu2::GpuBuffer<'fw, UVec4>,
     pub bvh: BVH<'fw>,
 
-    pub atlas: GpuConstImage<'fw, Rgba8UintNorm>,
-    pub material_data_buffer: GpuBuffer<'fw, MaterialData>,    
+    pub atlas: GpuFloatImage,
+    pub material_data_buffer: gpgpu2::GpuBuffer<'fw, MaterialData>,    
     
-    pub light_pick_buffer: GpuBuffer<'fw, LightPickEntry>,
+    pub light_pick_buffer: gpgpu2::GpuBuffer<'fw, LightPickEntry>,
 }
 
 fn convert_texture(texture: &Texture) -> Option<DynamicImage> {
@@ -168,7 +167,7 @@ impl<'fw> World<'fw> {
         }
 
         let (atlas_raw, mut sts) = crate::atlas::pack_textures(&textures, 4096, 4096);
-        let atlas = GpuConstImage::from_bytes(&FW, &atlas_raw.to_rgba8(), 4096, 4096);
+        let atlas = GpuFloatImage::from_bytes(&FW, &atlas_raw.to_rgba8(), 4096, 4096);
 
         for material_data in material_datas.iter_mut() {
             if material_data.has_albedo_texture() {
@@ -184,7 +183,7 @@ impl<'fw> World<'fw> {
                 material_data.normals = sts.remove(0);
             }
         }
-        let material_data_buffer = GpuBuffer::from_slice(&FW, &material_datas);
+        let material_data_buffer = gpgpu2::GpuBuffer::new(&FW, &material_datas, gpgpu2::GPU_BUFFER_USAGES);
 
         // BVH building
         let now = std::time::Instant::now();
@@ -195,7 +194,7 @@ impl<'fw> World<'fw> {
         let now = std::time::Instant::now();
         let emissive_mask = light_pick::compute_emissive_mask(&indices, &material_datas);
         let light_pick_table = light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask);
-        let light_pick_buffer = GpuBuffer::from_slice(&FW, &light_pick_table);
+        let light_pick_buffer = gpgpu2::GpuBuffer::new(&FW, &light_pick_table, gpgpu2::GPU_BUFFER_USAGES);
         println!("Light pick table build time: {:?}", now.elapsed());
 
         // TODO: Seperate loading from GPU upload
@@ -210,8 +209,8 @@ impl<'fw> World<'fw> {
                 ..Default::default()
             });
         }
-        let per_vertex_buffer = GpuBuffer::from_slice(&FW, &per_vertex_data);
-        let index_buffer = GpuBuffer::from_slice(&FW, &indices);
+        let per_vertex_buffer = gpgpu2::GpuBuffer::new(&FW, &per_vertex_data, gpgpu2::GPU_BUFFER_USAGES);
+        let index_buffer = gpgpu2::GpuBuffer::new(&FW, &indices, gpgpu2::GPU_BUFFER_USAGES);
         Self {
             per_vertex_buffer,
             index_buffer,

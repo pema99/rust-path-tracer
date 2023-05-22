@@ -14,6 +14,7 @@ pub mod bvh;
 pub mod atlas;
 pub mod asset;
 pub mod light_pick;
+pub mod gpgpu2;
 
 fn main() {
     let width = 1280;

@@ -68,8 +68,11 @@ fn make_view_dependent_state(
 
 impl App {
     pub fn new(window: winit::window::Window, width: u32, height: u32) -> Self {    
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-        let surface = unsafe { instance.create_surface(&window) };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc
+        });
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
@@ -88,7 +91,7 @@ impl App {
         .unwrap();
 
         let size = window.inner_size();
-        let surface_format = surface.get_supported_formats(&adapter)[0];
+        let surface_format = surface.get_capabilities(&adapter).formats[0];
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -96,6 +99,7 @@ impl App {
             height: size.height as u32,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![surface_format],
         };
         surface.configure(&device, &surface_config);
 
@@ -311,7 +315,7 @@ impl App {
         }
         self.last_input = Instant::now();
     
-        if ui.input().pointer.secondary_down() {
+        if ui.input(|i| i.pointer.secondary_down()) {
             self.interacting.store(true, Ordering::Relaxed);
             self.window.set_cursor_visible(false);
         } else {
@@ -328,22 +332,22 @@ impl App {
         forward = euler_mat * forward;
         right = euler_mat * right;
     
-        if ui.input().key_down(egui::Key::W) {
+        if ui.input(|i| i.key_down(egui::Key::W)) {
             config.cam_position += forward.extend(0.0) * 0.1;
         }
-        if ui.input().key_down(egui::Key::S) {
+        if ui.input(|i| i.key_down(egui::Key::S)) {
             config.cam_position -= forward.extend(0.0) * 0.1;
         }
-        if ui.input().key_down(egui::Key::D) {
+        if ui.input(|i| i.key_down(egui::Key::D)) {
             config.cam_position += right.extend(0.0) * 0.1;
         }
-        if ui.input().key_down(egui::Key::A) {
+        if ui.input(|i| i.key_down(egui::Key::A)) {
             config.cam_position -= right.extend(0.0) * 0.1;
         }
-        if ui.input().key_down(egui::Key::E) {
+        if ui.input(|i| i.key_down(egui::Key::E)) {
             config.cam_position.y += 0.1;
         }
-        if ui.input().key_down(egui::Key::Q) {
+        if ui.input(|i| i.key_down(egui::Key::Q)) {
             config.cam_position.y -= 0.1;
         }
     
@@ -627,6 +631,7 @@ impl PaintCallbackResources {
             dimension: wgpu::TextureDimension::D2,
             format,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[format],
         };
         let texture = device.create_texture(texture_desc);
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
