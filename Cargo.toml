@@ -16,7 +16,7 @@ russimp = { version = "2.0.5", features = ["prebuilt"] }
 image = { version = "0.23.14", default-features = false, features = ["png", "jpeg"] }
 parking_lot = "0.12.1"
 winit = "0.28.6"
-wgpu = { path = "D:/Projects/wgpu/wgpu", features = ["spirv"] }
+wgpu = { version = "0.15.1", features = ["spirv"] }
 egui-wgpu = "0.21.0"
 egui_winit_platform = "0.18.0"
 egui = "0.21.0"
@@ -24,9 +24,6 @@ pollster = "0.2.5"
 tinyfiledialogs = "3.9.1"
 fast_image_resize = "2.7.3"
 futures = "0.3.28"
-
-[patch.crates-io]
-wgpu = { path = "D:/Projects/wgpu/wgpu" }
 
 [build-dependencies]
 spirv-builder = "0.7.0"
