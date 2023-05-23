@@ -128,6 +128,9 @@ pub fn trace(
             if flush {
                 break;
             }
+            if !running.load(Ordering::Relaxed) {
+                return;
+            }
         }
         samples.fetch_add(finished_samples, Ordering::Relaxed);
 
