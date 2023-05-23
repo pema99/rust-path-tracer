@@ -92,8 +92,8 @@ impl App {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width as u32,
-            height: size.height as u32,
+            width: size.width,
+            height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
@@ -145,7 +145,7 @@ impl App {
         self.window.set_resizable(false);
         let size = self.window.inner_size();
 
-        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(self.config.read().clone()));
+        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(*self.config.read()));
         self.config = config;
         self.framebuffer = framebuffer;
         self.samples.store(0, Ordering::Relaxed);
@@ -211,7 +211,7 @@ impl App {
 
                         if ui.button("Select scene").clicked() {
                             tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
-                                self.selected_scene = path.clone();
+                                self.selected_scene = path;
                                 self.start_render();
                             });
                         }
@@ -414,7 +414,7 @@ impl App {
         };
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
         for (id, image_delta) in &tdelta.set {
-            self.egui_renderer.update_texture(&self.device, &self.queue, *id, &image_delta);
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
         }
         self.egui_renderer.update_buffers(
             &self.device,
@@ -448,7 +448,7 @@ impl App {
         output_frame.present();
 
         for id in &tdelta.free {
-            self.egui_renderer.free_texture(&id);
+            self.egui_renderer.free_texture(id);
         }
     }
 

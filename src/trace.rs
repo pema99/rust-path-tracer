@@ -1,5 +1,5 @@
 const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
-const BLUE_BYTES: &'static [u8] = include_bytes!("resources/bluenoise.png");
+const BLUE_BYTES: &[u8] = include_bytes!("resources/bluenoise.png");
 lazy_static::lazy_static! {
     pub static ref FW: gpgpu::Framework = make_framework();
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
@@ -97,7 +97,7 @@ pub fn trace(
     for y in 0..screen_height {
         for x in 0..screen_width {
             let pixel_index = (y * screen_width + x) as usize;
-            let pixel = BLUE_TEXTURE.get_pixel(x as u32 % BLUE_TEXTURE.width(), y as u32 % BLUE_TEXTURE.height())[0] as f32 / 255.0;
+            let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
             rng_data_blue[pixel_index].x = 0;
             rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
             rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
@@ -105,7 +105,7 @@ pub fn trace(
     }
 
     let pixel_count = (screen_width * screen_height) as u64;
-    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[config.read().clone()]);
+    let config_buffer = GpuUniformBuffer::from_slice(&FW, &[*config.read()]);
     let rng_buffer = GpuBuffer::from_slice(&FW, if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
     let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
 
@@ -138,7 +138,7 @@ pub fn trace(
         output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
         let sample_count = samples.load(Ordering::Relaxed) as f32;
         for (i, col) in image_buffer_raw.iter().enumerate() {
-            image_buffer[i * 3 + 0] = col.x / sample_count;
+            image_buffer[i * 3] = col.x / sample_count;
             image_buffer[i * 3 + 1] = col.y / sample_count;
             image_buffer[i * 3 + 2] = col.z / sample_count;
         }
@@ -156,7 +156,7 @@ pub fn trace(
         if flush {
             dirty.store(false, Ordering::Relaxed);
             samples.store(0, Ordering::Relaxed);
-            config_buffer.write(&[config.read().clone()]).unwrap();
+            config_buffer.write(&[*config.read()]).unwrap();
             output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
             rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
         }
