@@ -116,13 +116,20 @@ pub fn trace(
 
     while running.load(Ordering::Relaxed) {
         // Dispatch
-        let interacting = interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
-        let sync_rate = if interacting { 1 } else { sync_rate.load(Ordering::Relaxed) };
+        let sync_rate = sync_rate.load(Ordering::Relaxed);
+        let mut flush = false;
+        let mut finished_samples = 0;
         for _ in 0..sync_rate {
             rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
             FW.poll_blocking();
+            finished_samples += 1;
+            
+            flush |= interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
+            if flush {
+                break;
+            }
         }
-        samples.fetch_add(sync_rate, Ordering::Relaxed);
+        samples.fetch_add(finished_samples, Ordering::Relaxed);
 
         // Readback from GPU
         output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
@@ -135,7 +142,7 @@ pub fn trace(
 
         // Denoise
         #[cfg(feature = "oidn")]
-        if denoise.load(Ordering::Relaxed) {
+        if denoise.load(Ordering::Relaxed) && !flush {
             denoise_image(screen_width as usize, screen_height as usize, &mut image_buffer);
         }
 
@@ -143,7 +150,7 @@ pub fn trace(
         framebuffer.write().copy_from_slice(image_buffer.as_slice());
 
         // Interaction
-        if interacting {
+        if flush {
             dirty.store(false, Ordering::Relaxed);
             samples.store(0, Ordering::Relaxed);
             config_buffer.write(&[config.read().clone()]).unwrap();
