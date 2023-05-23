@@ -72,7 +72,7 @@ impl<'a> BVHBuilder<'a> {
         self
     }
 
-    fn update_node_aabb<'b>(&mut self, node_idx: usize) {
+    fn update_node_aabb(&mut self, node_idx: usize) {
         let node = &mut self.nodes[node_idx];
         let mut aabb_min = Vec3::splat(f32::INFINITY);
         let mut aabb_max = Vec3::splat(f32::NEG_INFINITY);

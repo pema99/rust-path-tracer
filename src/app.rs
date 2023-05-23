@@ -210,10 +210,10 @@ impl App {
                         }
 
                         if ui.button("Select scene").clicked() {
-                            tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
+                            if let Some(path) = tinyfiledialogs::open_file_dialog("Select scene", "", None) {
                                 self.selected_scene = path;
                                 self.start_render();
-                            });
+                            }
                         }
 
                         if ui.button("Save image").clicked() {
@@ -475,7 +475,7 @@ impl App {
         }
     }
 
-    pub fn handle_file_dropped(&mut self, path: &std::path::PathBuf) {
+    pub fn handle_file_dropped(&mut self, path: &std::path::Path) {
         self.selected_scene = path.to_str().unwrap().to_string();
         self.start_render();
     }
@@ -689,12 +689,12 @@ impl PaintCallbackResources {
         
             let buffer = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()).unwrap();
             let image = image::DynamicImage::ImageBgra8(buffer).into_rgba8();
-            tinyfiledialogs::save_file_dialog("Save render", "").map(|path| {
+            if let Some(path) = tinyfiledialogs::save_file_dialog("Save render", "") {
                 let res = image.save(path);
                 if res.is_err() {
                     println!("Failed to save image: {:?}", res.err());
                 }
-            });
+            }
         }
         output_buffer.unmap();
     }
