@@ -107,15 +107,18 @@ pub fn main_material(
             }
 
             // Interpolate vertex data
-            let vert_a = per_vertex_buffer[trace_result.triangle.x as usize].vertex.xyz();
-            let vert_b = per_vertex_buffer[trace_result.triangle.y as usize].vertex.xyz();
-            let vert_c = per_vertex_buffer[trace_result.triangle.z as usize].vertex.xyz();
-            let norm_a = per_vertex_buffer[trace_result.triangle.x as usize].normal.xyz();
-            let norm_b = per_vertex_buffer[trace_result.triangle.y as usize].normal.xyz();
-            let norm_c = per_vertex_buffer[trace_result.triangle.z as usize].normal.xyz();
-            let uv_a = per_vertex_buffer[trace_result.triangle.x as usize].uv0;
-            let uv_b = per_vertex_buffer[trace_result.triangle.y as usize].uv0;
-            let uv_c = per_vertex_buffer[trace_result.triangle.z as usize].uv0;
+            let vertex_data_a = per_vertex_buffer[trace_result.triangle.x as usize];
+            let vertex_data_b = per_vertex_buffer[trace_result.triangle.y as usize];
+            let vertex_data_c = per_vertex_buffer[trace_result.triangle.z as usize];
+            let vert_a = vertex_data_a.vertex.xyz();
+            let vert_b = vertex_data_b.vertex.xyz();
+            let vert_c = vertex_data_c.vertex.xyz();
+            let norm_a = vertex_data_a.normal.xyz();
+            let norm_b = vertex_data_b.normal.xyz();
+            let norm_c = vertex_data_c.normal.xyz();
+            let uv_a = vertex_data_a.uv0;
+            let uv_b = vertex_data_b.uv0;
+            let uv_c = vertex_data_c.uv0;
             let bary = util::barycentric(hit, vert_a, vert_b, vert_c);
             let mut normal = bary.x * norm_a + bary.y * norm_b + bary.z * norm_c;
             let mut uv = bary.x * uv_a + bary.y * uv_b + bary.z * uv_c;
@@ -127,9 +130,9 @@ pub fn main_material(
             if material.has_normal_texture() {
                 let scaled_uv = material.normals.xy() + uv * material.normals.zw();
                 let normal_map = atlas.sample_by_lod(*sampler, scaled_uv, 0.0) * 2.0 - 1.0;
-                let tangent_a = per_vertex_buffer[trace_result.triangle.x as usize].tangent.xyz();
-                let tangent_b = per_vertex_buffer[trace_result.triangle.y as usize].tangent.xyz();
-                let tangent_c = per_vertex_buffer[trace_result.triangle.z as usize].tangent.xyz();
+                let tangent_a = vertex_data_a.tangent.xyz();
+                let tangent_b = vertex_data_b.tangent.xyz();
+                let tangent_c = vertex_data_c.tangent.xyz();
                 let tangent = bary.x * tangent_a + bary.y * tangent_b + bary.z * tangent_c;
                 let tbn = Mat3::from_cols(tangent, tangent.cross(normal), normal);
                 normal = (tbn * normal_map.xyz()).normalize();

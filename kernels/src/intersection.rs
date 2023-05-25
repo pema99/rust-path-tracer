@@ -128,7 +128,7 @@ pub struct BVHReference<'a> {
 impl<'a> BVHReference<'a> {
     #[allow(dead_code)]
     pub fn intersect_fixed_order(&self, vertex_buffer: &[Vec4], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
-        let mut stack = FixedVec::<usize, 64>::new();
+        let mut stack = FixedVec::<usize, 32>::new();
         stack.push(0);
 
         let mut result = TraceResult::default();
@@ -167,7 +167,7 @@ impl<'a> BVHReference<'a> {
     }
 
     pub fn intersect_front_to_back(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
-        let mut stack = FixedVec::<usize, 64>::new();
+        let mut stack = FixedVec::<usize, 32>::new();
         stack.push(0);
 
         let mut result = TraceResult::default();
