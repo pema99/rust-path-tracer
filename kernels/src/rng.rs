@@ -1,4 +1,4 @@
-use spirv_std::glam::{UVec2, Vec2, Vec3};
+use spirv_std::glam::{UVec2, Vec2, Vec3, UVec4};
 
 #[allow(dead_code)]
 #[cfg(target_arch = "spirv")]
@@ -31,25 +31,28 @@ pub fn lds(n: u32, dimension: usize, offset: u32) -> f32 {
 }
 
 pub struct RngState {
-    state: UVec2,
-    dimension: usize,
+    state: UVec4,
 }
 
 impl RngState {
-    pub fn new(state: UVec2) -> Self {
+    pub fn new(state: UVec4) -> Self {
         Self {
             state,
-            dimension: 0,
         }
     }
 
-    pub fn next_state(&self) -> UVec2 {
-        UVec2::new(self.state.x + 1, self.state.y)
+    pub fn advance_sample(&mut self) {
+        self.state.x += 1;
+        self.state.z = 0;
+    }
+
+    pub fn current_state(&self) -> UVec4 {
+        self.state
     }
 
     pub fn gen_r1(&mut self) -> f32 {
-        self.dimension += 1;
-        lds(self.state.x, self.dimension, self.state.y)
+        self.state.z += 1;
+        lds(self.state.x, self.state.z as usize, self.state.y)
     }
 
     pub fn gen_r2(&mut self) -> Vec2 {

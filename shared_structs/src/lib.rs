@@ -37,6 +37,46 @@ impl Default for TracingConfig {
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
+pub struct Ray {
+    origin: Vec4,
+    direction: Vec4,
+}
+
+impl Ray {
+    pub fn new(origin: Vec3, direction: Vec3) -> Self {
+        Self {
+            origin: origin.extend(0.0),
+            direction: direction.extend(1.0),
+        }
+    }
+
+    pub fn origin(&self) -> Vec3 {
+        self.origin.xyz()
+    }
+
+    pub fn direction(&self) -> Vec3 {
+        self.direction.xyz()
+    }
+
+    pub fn set_origin(&mut self, origin: Vec3) {
+        self.origin = origin.extend(0.0);
+    }
+
+    pub fn set_direction(&mut self, direction: Vec3) {
+        self.direction = direction.extend(1.0);
+    }
+
+    pub fn alive(&self) -> bool {
+        self.direction.w > 0.0
+    }
+
+    pub fn kill(&mut self) {
+        self.direction.w = 0.0;
+    } 
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
 pub struct MaterialData { // each Vec4 is either a color or an atlas location
     pub emissive: Vec4,
     pub albedo: Vec4,

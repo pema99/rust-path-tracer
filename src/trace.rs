@@ -5,12 +5,13 @@ lazy_static::lazy_static! {
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
-use glam::{UVec2, Vec4};
+use glam::{UVec2, Vec4, UVec4};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
 use image::{RgbaImage, io::Reader};
 use pollster::FutureExt;
+use shared_structs::Ray;
 pub use shared_structs::TracingConfig;
 use std::{sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -35,12 +36,68 @@ fn make_framework() -> gpgpu::Framework {
     gpgpu::Framework::new(adapter, std::time::Duration::from_millis(1)).block_on()
 }
 
+struct RayGenKernel<'fw>(Kernel<'fw>);
+
+impl<'fw> RayGenKernel<'fw> {
+    fn new(
+        shader: &Shader,
+        config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
+        rng_buffer: &GpuBuffer<'fw, UVec4>,
+        ray_buffer: &GpuBuffer<'fw, Ray>,
+        throughput_buffer: &GpuBuffer<'fw, Vec4>,
+    ) -> Self {
+        let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
+        let bindings = DescriptorSet::default()
+            .bind_uniform_buffer(config_buffer)
+            .bind_buffer(rng_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(ray_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(throughput_buffer, GpuBufferUsage::ReadWrite);
+        let program = Program::new(&shader, "main_raygen").add_descriptor_set(bindings);
+        let kernel = Kernel::new(&FW, program);
+
+        Self(kernel)
+    }
+}
+
+struct IntersectKernel<'fw>(Kernel<'fw>);
+
+impl<'fw> IntersectKernel<'fw> {
+    fn new(
+        shader: &Shader,
+        config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
+        rng_buffer: &GpuBuffer<'fw, UVec4>,
+        ray_buffer: &GpuBuffer<'fw, Ray>,
+        output_buffer: &GpuBuffer<'fw, Vec4>,
+        throughput_buffer: &GpuBuffer<'fw, Vec4>,
+        world: &World<'fw>,
+    ) -> Self {
+        let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
+        let bindings = DescriptorSet::default()
+            .bind_uniform_buffer(config_buffer)
+            .bind_buffer(rng_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(ray_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(output_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(throughput_buffer, GpuBufferUsage::ReadWrite)
+            .bind_buffer(&world.per_vertex_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.index_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.bvh.nodes_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
+            .bind_buffer(&world.light_pick_buffer, GpuBufferUsage::ReadOnly)
+            .bind_sampler(&sampler)
+            .bind_const_image(&world.atlas);
+        let program = Program::new(&shader, "main_intersect").add_descriptor_set(bindings);
+        let kernel = Kernel::new(&FW, program);
+
+        Self(kernel)
+    }
+}
+
 struct PathTracingKernel<'fw>(Kernel<'fw>);
 
 impl<'fw> PathTracingKernel<'fw> {
     fn new(
         config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
-        rng_buffer: &GpuBuffer<'fw, UVec2>,
+        rng_buffer: &GpuBuffer<'fw, UVec4>,
         output_buffer: &GpuBuffer<'fw, Vec4>,
         world: &World<'fw>,
     ) -> Self {
@@ -86,14 +143,15 @@ pub fn trace(
     dirty: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
 ) {
+    let now = std::time::Instant::now();
     let world = World::from_path(scene_path);
 
     let screen_width = config.read().width;
     let screen_height = config.read().height;
     let pixel_count = (screen_width * screen_height) as usize;
     let mut rng = rand::thread_rng();
-    let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
-    let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    let mut rng_data_blue: Vec<UVec4> = vec![UVec4::ZERO; pixel_count];
+    let mut rng_data_uniform: Vec<UVec4> = vec![UVec4::ZERO; pixel_count];
     for y in 0..screen_height {
         for x in 0..screen_width {
             let pixel_index = (y * screen_width + x) as usize;
@@ -108,19 +166,35 @@ pub fn trace(
     let config_buffer = GpuUniformBuffer::from_slice(&FW, &[*config.read()]);
     let rng_buffer = GpuBuffer::from_slice(&FW, if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
     let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
+    let throughput_buffer = GpuBuffer::from_slice(&FW, &vec![Vec4::ONE; pixel_count as usize]);
+    let ray_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 
     let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
+    let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
+    let raygen = RayGenKernel::new(&shader, &config_buffer, &rng_buffer, &ray_buffer, &throughput_buffer,);
+    let intersect = IntersectKernel::new(&shader, &config_buffer, &rng_buffer, &ray_buffer, &output_buffer, &throughput_buffer, &world);
 
     while running.load(Ordering::Relaxed) {
+        if samples.load(Ordering::Relaxed) >= 300 {
+            println!("Took {} ms to render {} samples", now.elapsed().as_millis(), samples.load(Ordering::Relaxed));
+            break;
+        }
+
         // Dispatch
         let sync_rate = sync_rate.load(Ordering::Relaxed);
         let mut flush = false;
         let mut finished_samples = 0;
         for _ in 0..sync_rate {
-            rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
+            //rt.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
+            raygen.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
+            //FW.poll_blocking();
+            for i in 0..config.read().max_bounces {
+                intersect.0.enqueue(screen_width.div_ceil(8), screen_height.div_ceil(8), 1);
+                //FW.poll_blocking();
+            }
             FW.poll_blocking();
             finished_samples += 1;
             
@@ -158,6 +232,7 @@ pub fn trace(
             samples.store(0, Ordering::Relaxed);
             config_buffer.write(&[*config.read()]).unwrap();
             output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
+            throughput_buffer.write(&vec![Vec4::ONE; pixel_count as usize]).unwrap();
             rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
         }
     }
