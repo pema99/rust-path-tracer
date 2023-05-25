@@ -57,6 +57,7 @@ impl<'fw> World<'fw> {
                 TransformUVCoords,
                 CalculateTangentSpace,
                 EmbedTextures,
+                ImproveCacheLocality,
             ],
         )
         .unwrap();
