@@ -106,7 +106,7 @@ impl<'fw> World<'fw> {
                     let tan = (node_quat.mul_vec3(Vec3::new(t.x, t.y, t.z) / node_scale)).normalize();
                     tangents.push(Vec4::new(tan.x, tan.z, tan.y, 0.0));
                 }
-                if let Some(Some(uv_set)) = mesh.texture_coords.iter().next() {
+                if let Some(Some(uv_set)) = mesh.texture_coords.first() {
                     for uv in uv_set {
                         uvs.push(Vec2::new(uv.x, uv.y));
                     }
@@ -116,7 +116,7 @@ impl<'fw> World<'fw> {
             }
 
             for child in node.children.borrow().iter() {
-                walk_node_graph(scene, &child, new_trs, vertices, indices, normals, tangents, uvs);
+                walk_node_graph(scene, child, new_trs, vertices, indices, normals, tangents, uvs);
             }
         }
 
@@ -130,7 +130,7 @@ impl<'fw> World<'fw> {
         let mut textures = Vec::new();
         for (material_index, material) in blend.materials.iter().enumerate() {
             let current_material_data = &mut material_datas[material_index];
-            if let Some(texture) = load_texture(&material, TextureType::Diffuse) {
+            if let Some(texture) = load_texture(material, TextureType::Diffuse) {
                 // Albedo data is stored in gamma space, but we atlas it with all the other textures
                 // which are stored in linear. Therefore, we convert here.
                 let mut texture = texture.into_rgb8();
@@ -140,29 +140,29 @@ impl<'fw> World<'fw> {
                 textures.push(image::DynamicImage::ImageRgb8(texture));
                 current_material_data.set_has_albedo_texture(true);
             }
-            if let Some(texture) = load_texture(&material, TextureType::Metalness) {
+            if let Some(texture) = load_texture(material, TextureType::Metalness) {
                 textures.push(texture);
                 current_material_data.set_has_metallic_texture(true);
             }
-            if let Some(texture) = load_texture(&material, TextureType::Roughness) {
+            if let Some(texture) = load_texture(material, TextureType::Roughness) {
                 textures.push(texture);
                 current_material_data.set_has_roughness_texture(true);
             }
-            if let Some(texture) = load_texture(&material, TextureType::Normals) {
+            if let Some(texture) = load_texture(material, TextureType::Normals) {
                 textures.push(texture);
                 current_material_data.set_has_normal_texture(true);
             }
-            if let Some(col) = load_float_array(&material, "$clr.diffuse") {
+            if let Some(col) = load_float_array(material, "$clr.diffuse") {
                 current_material_data.albedo = Vec4::new(col[0], col[1], col[2], col[3]);
             }
-            if let Some(col) = load_float_array(&material, "$clr.emissive") {
+            if let Some(col) = load_float_array(material, "$clr.emissive") {
                 // HACK: Multiply by 15 since assimp 5.2.5 doesn't support emissive strength :(
                 current_material_data.emissive = Vec4::new(col[0], col[1], col[2], col[3]) * 15.0;
             }
-            if let Some(col) = load_float_array(&material, "$mat.metallicFactor") {
+            if let Some(col) = load_float_array(material, "$mat.metallicFactor") {
                 current_material_data.metallic = Vec4::splat(col[0]);
             }
-            if let Some(col) = load_float_array(&material, "$mat.roughnessFactor") {
+            if let Some(col) = load_float_array(material, "$mat.roughnessFactor") {
                 current_material_data.roughness = Vec4::splat(col[0]);
             }
         }

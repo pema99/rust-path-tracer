@@ -92,8 +92,8 @@ impl App {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width as u32,
-            height: size.height as u32,
+            width: size.width,
+            height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
@@ -145,7 +145,7 @@ impl App {
         self.window.set_resizable(false);
         let size = self.window.inner_size();
 
-        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(self.config.read().clone()));
+        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(*self.config.read()));
         self.config = config;
         self.framebuffer = framebuffer;
         self.samples.store(0, Ordering::Relaxed);
@@ -210,10 +210,10 @@ impl App {
                         }
 
                         if ui.button("Select scene").clicked() {
-                            tinyfiledialogs::open_file_dialog("Select scene", "", None).map(|path| {
-                                self.selected_scene = path.clone();
+                            if let Some(path) = tinyfiledialogs::open_file_dialog("Select scene", "", None) {
+                                self.selected_scene = path;
                                 self.start_render();
-                            });
+                            }
                         }
 
                         if ui.button("Save image").clicked() {
@@ -414,7 +414,7 @@ impl App {
         };
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
         for (id, image_delta) in &tdelta.set {
-            self.egui_renderer.update_texture(&self.device, &self.queue, *id, &image_delta);
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
         }
         self.egui_renderer.update_buffers(
             &self.device,
@@ -448,7 +448,7 @@ impl App {
         output_frame.present();
 
         for id in &tdelta.free {
-            self.egui_renderer.free_texture(&id);
+            self.egui_renderer.free_texture(id);
         }
     }
 
@@ -475,7 +475,7 @@ impl App {
         }
     }
 
-    pub fn handle_file_dropped(&mut self, path: &std::path::PathBuf) {
+    pub fn handle_file_dropped(&mut self, path: &std::path::Path) {
         self.selected_scene = path.to_str().unwrap().to_string();
         self.start_render();
     }
@@ -689,12 +689,12 @@ impl PaintCallbackResources {
         
             let buffer = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()).unwrap();
             let image = image::DynamicImage::ImageBgra8(buffer).into_rgba8();
-            tinyfiledialogs::save_file_dialog("Save render", "").map(|path| {
+            if let Some(path) = tinyfiledialogs::save_file_dialog("Save render", "") {
                 let res = image.save(path);
                 if res.is_err() {
                     println!("Failed to save image: {:?}", res.err());
                 }
-            });
+            }
         }
         output_buffer.unmap();
     }
