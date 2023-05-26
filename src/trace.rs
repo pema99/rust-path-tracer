@@ -179,8 +179,8 @@ pub fn trace(
 
     while running.load(Ordering::Relaxed) {
         if samples.load(Ordering::Relaxed) >= 300 {
-            println!("Took {} ms to render {} samples", now.elapsed().as_millis(), samples.load(Ordering::Relaxed));
-            break;
+            //println!("Took {} ms to render {} samples", now.elapsed().as_millis(), samples.load(Ordering::Relaxed));
+            //break;
         }
 
         // Dispatch

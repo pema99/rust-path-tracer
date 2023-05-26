@@ -61,9 +61,34 @@ pub fn main_raygen(
     rng[index] = rng_state.current_state();
 }
 
+fn oct_wrap(v: Vec2) -> Vec2 {
+    ( 1.0 - v.yx().abs() ) * Vec2::new(if v.x >= 0.0 { 1.0 } else { -1.0 }, if v.y >= 0.0 { 1.0 } else { -1.0 })
+}
+ 
+fn encode(mut n: Vec3) -> Vec2 {
+    n /= n.x.abs() + n.y.abs() + n.z.abs();
+    let nnxy = if n.z >= 0.0 { n.xy() } else { oct_wrap(n.xy()) };
+    n.x = nnxy.x;
+    n.y = nnxy.y;
+    n.x = n.x * 0.5 + 0.5;
+    n.y = n.y * 0.5 + 0.5;
+    n.xy()
+}
+ 
+fn decode(mut f: Vec2) -> Vec3 {
+    f = f * 2.0 - 1.0;
+    let mut n = Vec3::new( f.x, f.y, 1.0 - f.x.abs() - f.y.abs());
+    let t = -n.z.clamp(0.0, 1.0);
+    n.x += if n.x >= 0.0 { -t } else { t };
+    n.y += if n.y >= 0.0 { -t } else { t };
+    return n.normalize();
+}
+
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn main_intersect(
     #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(local_invocation_id)] lid: UVec3,
+    #[spirv(workgroup_id)] wid: UVec3,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [UVec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] ray_buffer: &mut [Ray],
@@ -76,13 +101,41 @@ pub fn main_intersect(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 9)] light_pick_buffer: &[LightPickEntry],
     #[spirv(descriptor_set = 0, binding = 10)] sampler: &Sampler,
     #[spirv(descriptor_set = 0, binding = 11)] atlas: &Image!(2D, type=f32, sampled),
+    #[spirv(workgroup)] workgroup: &mut [u32; 32 * 32],
 ) {
-    let index = (id.y * config.width + id.x) as usize;
-
+    let id = lid + wid * UVec3::new(8, 8, 1);
+    
     // Handle non-divisible workgroup sizes.
     if id.x > config.width || id.y > config.height {
         return;
     }
+
+    //////
+    let index = (id.y * config.width + id.x) as usize;
+
+    let bin_size = 32;
+    let bin_count = bin_size * bin_size;
+
+    let ray = ray_buffer[index];
+    let oct_encoded = encode(ray.direction());
+    let bin_coord = (bin_size as f32 * oct_encoded).as_uvec2();
+    let bin_index = bin_coord.y * bin_size + bin_coord.x;
+
+    let mut ray_bin_index = 0;
+    if bin_index < bin_count {
+        unsafe {
+            ray_bin_index = spirv_std::arch::atomic_i_add::<u32, 2, 0x400>(&mut workgroup[bin_index as usize], 1);
+        }
+    }
+
+    output[index] += if workgroup[bin_index as usize] != 0 { Vec4::ONE } else { Vec4::ZERO };
+    if ray.depth() > 0 { 
+        return;
+    }
+
+
+
+
 
     // If ray is dead, we are done
     let mut ray = ray_buffer[index];
@@ -210,6 +263,7 @@ pub fn main_intersect(
             // Update ray
             ray.set_direction(bsdf_sample.sampled_direction);
             ray.set_origin(hit + ray.direction() * util::EPS);
+            ray.bounce();
 
             // Russian roulette
             if bounce > config.min_bounces {

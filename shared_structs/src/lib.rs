@@ -73,6 +73,14 @@ impl Ray {
     pub fn kill(&mut self) {
         self.direction.w = 0.0;
     } 
+
+    pub fn bounce(&mut self) {
+        self.origin.w += 1.0;
+    }
+
+    pub fn depth(&self) -> u32 {
+        self.origin.w as u32
+    }
 }
 
 #[repr(C)]
