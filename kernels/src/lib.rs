@@ -21,6 +21,7 @@ mod light_pick;
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn main_material(
     #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(local_invocation_id)] lid: UVec3,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [UVec2],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] output: &mut [Vec4],
@@ -31,6 +32,7 @@ pub fn main_material(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] light_pick_buffer: &[LightPickEntry],
     #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
     #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
+    #[spirv(workgroup)] scratch: &mut [u32; 8 * 8],
 ) {
     let index = (id.y * config.width + id.x) as usize;
 
@@ -39,34 +41,84 @@ pub fn main_material(
         return;
     }
 
+    let mut sobel = [0.0; 9];
+    for y in 0..3 {
+        for x in 0..3 {
+            let sobel_id = id.xy().as_ivec2() + IVec2::new(x - 1, y - 1);
+            let sobel_index = (sobel_id.y * config.width as i32 + sobel_id.x) as usize;
+            let color = output[sobel_index].xyz() / (rng[sobel_index].x+1) as f32;
+            let luminance = color.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+            sobel[(y * 3 + x) as usize] = luminance;
+        }
+    }
+    let gx = (sobel[0] - sobel[2] + 2.0 * sobel[3] - 2.0 * sobel[5] + sobel[6] - sobel[8]).abs();
+    let gy = (sobel[0] + 2.0 * sobel[1] + sobel[2] - sobel[6] - 2.0 * sobel[7] - sobel[8]).abs();
+    let threshold = 0.1; 
+
+    const RATE_1X1: u32 = 0b000;
+    const RATE_1X2: u32 = 0b001;
+    const RATE_2X1: u32 = 0b100;
+    const RATE_2X2: u32 = 0b101;
+    let mut my_rate = RATE_2X2;
+    if gx > threshold && gy > threshold {
+        my_rate = RATE_1X1;
+    } else if gx > threshold {
+        my_rate = RATE_2X1;
+    } else if gy > threshold {
+        my_rate = RATE_1X2;
+    }
+    scratch[(lid.y * 8 + lid.x) as usize] = my_rate;
+    unsafe { spirv_std::arch::workgroup_memory_barrier_with_group_sync(); }
+    if lid.x == 0 && lid.y == 0 {
+        let mut rate = my_rate;
+        for i in 0..64 {
+            let other_rate = scratch[i];
+            rate = if other_rate < rate { other_rate } else { rate };
+        }
+        scratch[0] = rate;
+    }
+    unsafe { spirv_std::arch::workgroup_memory_barrier_with_group_sync(); }
+    let warp_rate = scratch[0];
+    output[index].w = warp_rate as f32;
+
+    let mut rng_state = rng::RngState::new(rng[index]);
+    if (warp_rate & RATE_2X1 == 1) && (id.x & 1 == 1) {
+        output[index] = output[index + 1];
+        rng[index] = rng_state.next_state();
+        return;
+    } else if (warp_rate & RATE_1X2 == 1) && (id.y & 1 == 1) {
+        output[index] = output[index + config.width as usize];
+        rng[index] = rng_state.next_state();
+        return;
+    }
+
     let nee_mode = NextEventEstimation::from_u32(config.nee);
     let nee = nee_mode.uses_nee();
-    let mut rng_state = rng::RngState::new(rng[index]);
-
+    
     // Get anti-aliased pixel coordinates.
     let suv = id.xy().as_vec2() + rng_state.gen_r2();
     let mut uv = Vec2::new(
         suv.x as f32 / config.width as f32,
         1.0 - suv.y as f32 / config.height as f32,
     ) * 2.0
-        - 1.0;
+    - 1.0;
     uv.y *= config.height as f32 / config.width as f32;
-
+    
     // Setup camera.
     let mut ray_origin = config.cam_position.xyz();
     let mut ray_direction = Vec3::new(uv.x, uv.y, 1.0).normalize();
     let euler_mat = Mat3::from_rotation_y(config.cam_rotation.y) * Mat3::from_rotation_x(config.cam_rotation.x);
     ray_direction = euler_mat * ray_direction;
-
+    
     let bvh = BVHReference {
         nodes: nodes_buffer,
     };
-
-    let mut throughput = Vec3::ONE;
+    
     let mut radiance = Vec3::ZERO;
+    let mut throughput = Vec3::ONE;
     let mut last_bsdf_sample = bsdf::BSDFSample::default();
     let mut last_light_sample = light_pick::DirectLightSample::default(); 
-
+    
     for bounce in 0..config.max_bounces {
         let trace_result = bvh.intersect_front_to_back(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
@@ -180,6 +232,6 @@ pub fn main_material(
         }
     }
 
-    output[index] += radiance.extend(1.0);
     rng[index] = rng_state.next_state();
+    output[index] += radiance.extend(0.0);
 }
