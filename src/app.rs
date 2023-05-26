@@ -128,7 +128,7 @@ impl App {
             surface_format,
             egui_renderer,
             compute_join_handle: None,
-            selected_scene: "scene.glb".to_string(),
+            selected_scene: "scenes/DarkCornell.glb".to_string(),
             tonemapping: Tonemapping::None,
         }
     }

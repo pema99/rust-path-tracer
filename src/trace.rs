@@ -5,7 +5,7 @@ lazy_static::lazy_static! {
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
-use glam::{UVec2, Vec4};
+use glam::{UVec2, Vec4, Vec3};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
@@ -114,7 +114,13 @@ pub fn trace(
 
     let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
 
+    let now = std::time::Instant::now();
     while running.load(Ordering::Relaxed) {
+        if samples.load(Ordering::Relaxed) >= 300 {
+            println!("{} samples in {:?} ms", samples.load(Ordering::Relaxed), now.elapsed().as_millis());
+            return;
+        }
+
         // Dispatch
         let sync_rate = sync_rate.load(Ordering::Relaxed);
         let mut flush = false;
@@ -141,6 +147,17 @@ pub fn trace(
             image_buffer[i * 3] = col.x / sample_count;
             image_buffer[i * 3 + 1] = col.y / sample_count;
             image_buffer[i * 3 + 2] = col.z / sample_count;
+
+            /*let col = match col.w as u32 {
+                0b000 => Vec3::new(1.0, 0.0, 0.0),
+                0b001 => Vec3::new(0.0, 0.0, 1.0),
+                0b100 => Vec3::new(1.0, 0.0, 1.0),
+                0b101 => Vec3::new(0.0, 1.0, 0.0),
+                _ => Vec3::new(0.0, 0.0, 0.0),
+            };
+            image_buffer[i*3] = col.x;
+            image_buffer[i*3+1] = col.y;
+            image_buffer[i*3+2] = col.z;*/
         }
 
         // Denoise

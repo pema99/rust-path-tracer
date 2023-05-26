@@ -27,7 +27,7 @@ impl Default for TracingConfig {
             height: 720,
             min_bounces: 3,
             max_bounces: 4,
-            nee: 0,
+            nee: 1,
             _padding0: 0,
             _padding1: 0,
             _padding2: 0,
