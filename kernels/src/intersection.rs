@@ -166,7 +166,15 @@ impl<'a> BVHReference<'a> {
         result
     }
 
-    pub fn intersect_front_to_back(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
+    pub fn intersect_nearest(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3) -> TraceResult {
+        self.intersect_front_to_back::<true>(per_vertex_buffer, index_buffer, ro, rd, 0.0)
+    }
+
+    pub fn intersect_any(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3, max_t: f32) -> TraceResult {
+        self.intersect_front_to_back::<false>(per_vertex_buffer, index_buffer, ro, rd, max_t)
+    }
+
+    fn intersect_front_to_back<const NEAREST_HIT: bool>(&self, per_vertex_buffer: &[PerVertexData], index_buffer: &[UVec4], ro: Vec3, rd: Vec3, max_t: f32) -> TraceResult {
         let mut stack = FixedVec::<usize, 32>::new();
         stack.push(0);
 
@@ -184,12 +192,15 @@ impl<'a> BVHReference<'a> {
     
                     let mut t = 0.0;
                     let mut backface = false;
-                    if muller_trumbore(ro, rd, a, b, c, &mut t, &mut backface) && t > 0.001 && t < result.t {
+                    if muller_trumbore(ro, rd, a, b, c, &mut t, &mut backface) && t > 0.001 && t < result.t && (NEAREST_HIT || t <= max_t) {
                         result.triangle = triangle;
                         result.triangle_index = triangle_index;
                         result.t = result.t.min(t);
                         result.hit = true;
                         result.backface = backface;
+                        if !NEAREST_HIT {
+                            return result;
+                        }
                     }
                 }
             } else {

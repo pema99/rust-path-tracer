@@ -138,13 +138,14 @@ pub fn sample_direct_lighting(
 
     // Sample the light directly using MIS
     let mut direct = Vec3::ZERO;
-    let light_trace = bvh.intersect_front_to_back(
+    let light_trace = bvh.intersect_any(
         per_vertex_buffer,
         index_buffer,
         surface_point + light_direction * util::EPS,
-        light_direction
+        light_direction,
+        light_distance - util::EPS * 2.0,
     );
-    if light_trace.hit && light_trace.triangle_index == light_index {
+    if !light_trace.hit {
         // Calculate light pdf for this sample
         let light_pdf = calculate_light_pdf(light_area, light_distance, light_normal, light_direction);
         if light_pdf > 0.0 {

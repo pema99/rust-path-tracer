@@ -68,7 +68,7 @@ pub fn main_material(
     let mut last_light_sample = light_pick::DirectLightSample::default(); 
 
     for bounce in 0..config.max_bounces {
-        let trace_result = bvh.intersect_front_to_back(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
+        let trace_result = bvh.intersect_nearest(per_vertex_buffer, index_buffer, ray_origin, ray_direction);
         let hit = ray_origin + ray_direction * trace_result.t;
 
         if !trace_result.hit {
