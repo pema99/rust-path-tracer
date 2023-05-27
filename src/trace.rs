@@ -5,7 +5,7 @@ lazy_static::lazy_static! {
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
-use glam::{UVec2, Vec4};
+use glam::{UVec2, Vec4, UVec3};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
@@ -18,7 +18,7 @@ use std::{sync::{
 }, io::Cursor};
 use parking_lot::RwLock;
 
-use crate::asset::World;
+use crate::asset::{World, GpuWorld};
 
 fn make_framework() -> gpgpu::Framework {
     let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
@@ -42,7 +42,7 @@ impl<'fw> PathTracingKernel<'fw> {
         config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
         rng_buffer: &GpuBuffer<'fw, UVec2>,
         output_buffer: &GpuBuffer<'fw, Vec4>,
-        world: &World<'fw>,
+        world: &GpuWorld<'fw>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
@@ -86,7 +86,7 @@ pub fn trace(
     dirty: Arc<AtomicBool>,
     config: Arc<RwLock<TracingConfig>>,
 ) {
-    let world = World::from_path(scene_path);
+    let world = World::from_path(scene_path).into_gpu();
 
     let screen_width = config.read().width;
     let screen_height = config.read().height;
@@ -159,6 +159,109 @@ pub fn trace(
             config_buffer.write(&[*config.read()]).unwrap();
             output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
             rng_buffer.write(if use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
+        }
+    }
+}
+
+pub fn trace_cpu(
+    scene_path: &str,
+    framebuffer: Arc<RwLock<Vec<f32>>>,
+    running: Arc<AtomicBool>,
+    samples: Arc<AtomicU32>,
+    #[allow(unused_variables)] denoise: Arc<AtomicBool>,
+    sync_rate: Arc<AtomicU32>,
+    use_blue_noise: Arc<AtomicBool>,
+    interacting: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
+    config: Arc<RwLock<TracingConfig>>,
+) {
+    let world = World::from_path(scene_path);
+
+    let screen_width = config.read().width;
+    let screen_height = config.read().height;
+    let pixel_count = (screen_width * screen_height) as usize;
+    let mut rng = rand::thread_rng();
+    let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    for y in 0..screen_height {
+        for x in 0..screen_width {
+            let pixel_index = (y * screen_width + x) as usize;
+            let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
+            rng_data_blue[pixel_index].x = 0;
+            rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
+            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+        }
+    }
+
+    let pixel_count = (screen_width * screen_height) as u64;
+    let mut rng_buffer = if use_blue_noise.load(Ordering::Relaxed) { &mut rng_data_blue } else { &mut rng_data_uniform };
+    let mut output_buffer = vec![Vec4::ZERO; pixel_count as usize];
+
+    let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
+
+    let atlas_data = world.atlas.into_rgb8();
+    let atlas_cpu: Vec<Vec4> = atlas_data.chunks(3).map(|f| Vec4::new(f[0] as f32, f[1] as f32, f[2] as f32, 1.0)).collect();
+    let atlas_image = shared_structs::Image::new(&atlas_cpu, 0, 0);
+
+    // This a bit of hack, but whatever
+    while running.load(Ordering::Relaxed) {
+        // Dispatch
+        let sync_rate = sync_rate.load(Ordering::Relaxed);
+        let mut flush = false;
+        let mut finished_samples = 0;
+        for _ in 0..sync_rate {
+            for x in 0..screen_width {
+                for y in 0..screen_height {
+                    kernels::main_material(
+                        UVec3::new(x, y, 1),
+                        &config.read(),
+                        rng_buffer,
+                        &mut output_buffer,
+                        &world.per_vertex_buffer,
+                        &world.index_buffer,
+                        &world.bvh.nodes,
+                        &world.material_data_buffer,
+                        &world.light_pick_buffer,
+                        &shared_structs::Sampler,
+                        &atlas_image
+                    )
+                }
+            }
+            finished_samples += 1;
+            
+            flush |= interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
+            if flush {
+                break;
+            }
+            if !running.load(Ordering::Relaxed) {
+                return;
+            }
+        }
+        samples.fetch_add(finished_samples, Ordering::Relaxed);
+
+        // Readback from GPU
+        let sample_count = samples.load(Ordering::Relaxed) as f32;
+        for (i, col) in output_buffer.iter().enumerate() {
+            image_buffer[i * 3] = col.x / sample_count;
+            image_buffer[i * 3 + 1] = col.y / sample_count;
+            image_buffer[i * 3 + 2] = col.z / sample_count;
+        }
+
+        // Denoise
+        #[cfg(feature = "oidn")]
+        if denoise.load(Ordering::Relaxed) && !flush {
+            denoise_image(screen_width as usize, screen_height as usize, &mut image_buffer);
+        }
+
+        // Push to render thread
+        framebuffer.write().copy_from_slice(image_buffer.as_slice());
+
+        // Interaction
+        if flush {
+            dirty.store(false, Ordering::Relaxed);
+            samples.store(0, Ordering::Relaxed);
+            output_buffer = vec![Vec4::ZERO; pixel_count as usize];
+            rng_buffer = if use_blue_noise.load(Ordering::Relaxed) { &mut rng_data_blue } else { &mut rng_data_uniform };
         }
     }
 }

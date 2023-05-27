@@ -32,8 +32,18 @@ impl BVHNodeExtensions for BVHNode {
     }
 }
 
-pub struct BVH<'fw> {
+pub struct BVH {
     pub nodes: Vec<BVHNode>,
+}
+
+impl BVH {
+    pub fn into_gpu<'fw>(self) -> GpuBVH<'fw> {
+        let nodes_buffer = GpuBuffer::from_slice(&FW, &self.nodes);
+        GpuBVH { nodes_buffer }
+    }
+}
+
+pub struct GpuBVH<'fw> {
     pub nodes_buffer: GpuBuffer<'fw, BVHNode>,
 }
 
@@ -244,7 +254,7 @@ impl<'a> BVHBuilder<'a> {
         (best_axis, best_split, best_cost)
     }
 
-    pub fn build<'b>(&mut self) -> BVH<'b> {
+    pub fn build(&mut self) -> BVH {
         let mut node_count = 1;
 
         let root = &mut self.nodes[0];
@@ -308,10 +318,8 @@ impl<'a> BVHBuilder<'a> {
         }
 
         self.nodes.truncate(node_count);
-        let nodes_buffer = GpuBuffer::from_slice(&FW, &self.nodes);
         BVH {
             nodes: self.nodes.clone(),
-            nodes_buffer,
         }
     }
 }
