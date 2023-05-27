@@ -13,7 +13,7 @@ use glam::{Mat3, Vec3};
 use parking_lot::RwLock;
 use shared_structs::{TracingConfig, NextEventEstimation};
 
-use crate::trace::trace;
+use crate::trace::{trace_cpu, trace_gpu};
 
 #[repr(u32)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -37,6 +37,7 @@ pub struct App {
     config: Arc<RwLock<TracingConfig>>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
+    use_cpu: bool,
     tonemapping: Tonemapping,
     selected_scene: String,
     last_input: Instant,
@@ -130,6 +131,7 @@ impl App {
             compute_join_handle: None,
             selected_scene: "scene.glb".to_string(),
             tonemapping: Tonemapping::None,
+            use_cpu: false,
         }
     }
 
@@ -164,20 +166,35 @@ impl App {
         let dirty = self.dirty.clone();
         let config = self.config.clone();
 
+        let use_cpu = self.use_cpu;
         let path = self.selected_scene.clone();
         self.compute_join_handle = Some(std::thread::spawn(move || {
-            trace(
-                &path,
-                data,
-                running,
-                samples,
-                denoise,
-                sync_rate,
-                use_blue_noise,
-                interacting,
-                dirty,
-                config,
-            );
+            if use_cpu {
+                trace_cpu(
+                    &path,
+                    data,
+                    running,
+                    samples,
+                    denoise,
+                    use_blue_noise,
+                    interacting,
+                    dirty,
+                    config,
+                );
+            } else {
+                trace_gpu(
+                    &path,
+                    data,
+                    running,
+                    samples,
+                    denoise,
+                    sync_rate,
+                    use_blue_noise,
+                    interacting,
+                    dirty,
+                    config,
+                );
+            }
         }));
     }
 
@@ -290,8 +307,26 @@ impl App {
                     });
                 ui.end_row();
 
+                egui::ComboBox::from_label("Compute device")
+                    .selected_text(if self.use_cpu { "CPU" } else { "GPU" })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(!self.use_cpu, "GPU").clicked() { 
+                            self.use_cpu = false;
+                            if self.compute_join_handle.is_some() {
+                                self.start_render();
+                            }
+                        };
+                        if ui.selectable_label(self.use_cpu, "CPU").clicked() {
+                            self.use_cpu = true;
+                            if self.compute_join_handle.is_some() {
+                                self.start_render();
+                            }
+                        };
+                    });
+                ui.end_row();
+
                 let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
-                if ui.add(egui::Slider::new(&mut sync_rate, 1..=256).text("Sync rate")).changed() {
+                if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut sync_rate, 1..=256).text("GPU sync rate")).changed() {
                     self.sync_rate.store(sync_rate, Ordering::Relaxed);
                 }
                 ui.end_row();

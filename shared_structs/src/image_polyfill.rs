@@ -30,8 +30,8 @@ pub mod polyfill {
         }
 
         fn sample_raw(&self, coord: IVec2) -> Vec4 {
-            let x = coord.x as usize;
-            let y = coord.y as usize;
+            let x = coord.x as usize % self.width as usize;
+            let y = coord.y as usize % self.height as usize;
             self.buffer[y * self.width as usize + x]
         }
 

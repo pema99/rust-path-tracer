@@ -9,7 +9,7 @@ use glam::{UVec2, Vec4, UVec3};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
 };
-use image::{RgbaImage, io::Reader};
+use image::{RgbaImage, io::Reader, GenericImageView};
 use pollster::FutureExt;
 pub use shared_structs::TracingConfig;
 use std::{sync::{
@@ -164,13 +164,12 @@ pub fn trace_gpu(
     }
 }
 
-pub fn trace(
+pub fn trace_cpu(
     scene_path: &str,
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
     samples: Arc<AtomicU32>,
     #[allow(unused_variables)] denoise: Arc<AtomicBool>,
-    sync_rate: Arc<AtomicU32>,
     use_blue_noise: Arc<AtomicBool>,
     interacting: Arc<AtomicBool>,
     dirty: Arc<AtomicBool>,
@@ -200,11 +199,13 @@ pub fn trace(
 
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 
+    let atlas_width = world.atlas.width();
+    let atlas_height = world.atlas.height();
     let atlas_data = world.atlas.into_rgb8();
-    let atlas_cpu: Vec<Vec4> = atlas_data.chunks(3).map(|f| Vec4::new(f[0] as f32, f[1] as f32, f[2] as f32, 1.0)).collect();
-    let atlas_image = shared_structs::Image::new(&atlas_cpu, 0, 0);
+    let atlas_cpu: Vec<Vec4> = atlas_data.chunks(3).map(|f| Vec4::new(f[0] as f32, f[1] as f32, f[2] as f32, 255.0) / 255.0).collect();
+    assert_eq!(atlas_cpu.len(), atlas_width as usize * atlas_height as usize);
+    let atlas_image = shared_structs::Image::new(&atlas_cpu, atlas_width, atlas_height);
 
-    // This a bit of hack, but whatever
     while running.load(Ordering::Relaxed) {
         // Dispatch
         let flush = interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
