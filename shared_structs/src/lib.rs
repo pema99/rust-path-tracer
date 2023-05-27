@@ -3,6 +3,9 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec3, Vec4, Vec4Swizzles, Vec2};
 
+mod image_polyfill;
+pub use image_polyfill::polyfill::{Image, Sampler};
+
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct TracingConfig {

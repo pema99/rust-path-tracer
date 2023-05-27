@@ -1,9 +1,10 @@
 use shared_structs::MaterialData;
-use spirv_std::{glam::{Vec3, Vec2, Vec4Swizzles}, Sampler, Image};
+use spirv_std::{glam::{Vec3, Vec2, Vec4Swizzles}};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
 use crate::{rng, util::{self}};
+use shared_structs::{Image, Sampler};
 
 type Spectrum = Vec3;
 

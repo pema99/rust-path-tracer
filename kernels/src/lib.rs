@@ -3,10 +3,11 @@
 use bsdf::BSDF;
 use glam::*;
 use intersection::BVHReference;
+use shared_structs::{Image, Sampler};
 use shared_structs::{TracingConfig, BVHNode, MaterialData, PerVertexData, LightPickEntry, NextEventEstimation};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
-use spirv_std::{glam, spirv, Sampler, Image};
+use spirv_std::{glam, spirv};
 
 mod bsdf;
 mod rng;
@@ -15,8 +16,6 @@ mod intersection;
 mod vec;
 mod skybox;
 mod light_pick;
-
-// TODO: Use flat buffers instead of textures, so we can use the same code for CPU and GPU
 
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn main_material(
