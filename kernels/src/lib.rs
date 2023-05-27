@@ -17,30 +17,23 @@ mod vec;
 mod skybox;
 mod light_pick;
 
-#[spirv(compute(threads(8, 8, 1)))]
-pub fn main_material(
-    #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [UVec2],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] output: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] per_vertex_buffer: &[PerVertexData],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] nodes_buffer: &[BVHNode],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] material_data_buffer: &[MaterialData],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] light_pick_buffer: &[LightPickEntry],
-    #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
-    #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
+#[inline(always)]
+pub fn trace_pixel(
+    id: UVec3,
+    config: &TracingConfig,
+    rng: &mut UVec2,
+    output: &mut Vec4,
+    per_vertex_buffer: &[PerVertexData],
+    index_buffer: &[UVec4],
+    nodes_buffer: &[BVHNode],
+    material_data_buffer: &[MaterialData],
+    light_pick_buffer: &[LightPickEntry],
+    sampler: &Sampler,
+    atlas: &Image!(2D, type=f32, sampled),
 ) {
-    let index = (id.y * config.width + id.x) as usize;
-
-    // Handle non-divisible workgroup sizes.
-    if id.x > config.width || id.y > config.height {
-        return;
-    }
-
     let nee_mode = NextEventEstimation::from_u32(config.nee);
     let nee = nee_mode.uses_nee();
-    let mut rng_state = rng::RngState::new(rng[index]);
+    let mut rng_state = rng::RngState::new(*rng);
 
     // Get anti-aliased pixel coordinates.
     let suv = id.xy().as_vec2() + rng_state.gen_r2();
@@ -179,6 +172,43 @@ pub fn main_material(
         }
     }
 
-    output[index] += radiance.extend(1.0);
-    rng[index] = rng_state.next_state();
+    *output += radiance.extend(1.0);
+    *rng = rng_state.next_state();
+}
+
+
+#[spirv(compute(threads(8, 8, 1)))]
+pub fn trace_kernel(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [UVec2],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] output: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] per_vertex_buffer: &[PerVertexData],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] nodes_buffer: &[BVHNode],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] material_data_buffer: &[MaterialData],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] light_pick_buffer: &[LightPickEntry],
+    #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
+    #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
+) {
+    // Handle non-divisible workgroup sizes.
+    if id.x > config.width || id.y > config.height {
+        return;
+    }
+    
+    let index = (id.y * config.width + id.x) as usize;
+
+    trace_pixel(
+        id, 
+        config,
+        &mut rng[index],
+        &mut output[index],
+        per_vertex_buffer,
+        index_buffer,
+        nodes_buffer,
+        material_data_buffer,
+        light_pick_buffer,
+        sampler,
+        atlas
+    );
 }

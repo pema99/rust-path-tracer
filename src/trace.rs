@@ -5,6 +5,7 @@ lazy_static::lazy_static! {
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
+use egui::output;
 use glam::{UVec2, Vec4, UVec3};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
@@ -17,6 +18,7 @@ use std::{sync::{
     Arc,
 }, io::Cursor};
 use parking_lot::RwLock;
+use rayon::prelude::*;
 
 use crate::asset::{World, GpuWorld};
 
@@ -57,7 +59,7 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(&world.light_pick_buffer, GpuBufferUsage::ReadOnly)
             .bind_sampler(&sampler)
             .bind_const_image(&world.atlas);
-        let program = Program::new(&shader, "main_material").add_descriptor_set(bindings);
+        let program = Program::new(&shader, "trace_kernel").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
         Self(kernel)
@@ -74,7 +76,7 @@ fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
         .expect("Filter config error!");
 }
 
-pub fn trace(
+pub fn trace_gpu(
     scene_path: &str,
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
@@ -163,7 +165,7 @@ pub fn trace(
     }
 }
 
-pub fn trace_cpu(
+pub fn trace(
     scene_path: &str,
     framebuffer: Arc<RwLock<Vec<f32>>>,
     running: Arc<AtomicBool>,
@@ -206,17 +208,18 @@ pub fn trace_cpu(
     // This a bit of hack, but whatever
     while running.load(Ordering::Relaxed) {
         // Dispatch
-        let sync_rate = sync_rate.load(Ordering::Relaxed);
-        let mut flush = false;
-        let mut finished_samples = 0;
-        for _ in 0..sync_rate {
-            for x in 0..screen_width {
-                for y in 0..screen_height {
-                    kernels::main_material(
-                        UVec3::new(x, y, 1),
-                        &config.read(),
-                        rng_buffer,
-                        &mut output_buffer,
+        let flush = interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
+        {
+            let config = config.read();
+            let outputs = output_buffer.par_chunks_mut(screen_width as usize).enumerate();
+            let rngs = rng_buffer.par_chunks_mut(screen_width as usize);
+            outputs.zip(rngs).for_each(|((y, output), rng)| {
+                for x in 0..screen_width {
+                    kernels::trace_pixel(
+                        UVec3::new(x, y as u32, 1),
+                        &config,
+                        &mut rng[x as usize],
+                        &mut output[x as usize],
                         &world.per_vertex_buffer,
                         &world.index_buffer,
                         &world.bvh.nodes,
@@ -224,20 +227,11 @@ pub fn trace_cpu(
                         &world.light_pick_buffer,
                         &shared_structs::Sampler,
                         &atlas_image
-                    )
+                    );
                 }
-            }
-            finished_samples += 1;
-            
-            flush |= interacting.load(Ordering::Relaxed) || dirty.load(Ordering::Relaxed);
-            if flush {
-                break;
-            }
-            if !running.load(Ordering::Relaxed) {
-                return;
-            }
+            });
         }
-        samples.fetch_add(finished_samples, Ordering::Relaxed);
+        samples.fetch_add(1, Ordering::Relaxed);
 
         // Readback from GPU
         let sample_count = samples.load(Ordering::Relaxed) as f32;

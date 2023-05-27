@@ -24,6 +24,7 @@ egui = "0.20.0"
 pollster = "0.2.5"
 tinyfiledialogs = "3.9.1"
 fast_image_resize = "2.7.3"
+rayon = "1.7.0"
 
 [build-dependencies]
 spirv-builder = "0.7.0"
