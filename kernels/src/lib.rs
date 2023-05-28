@@ -64,10 +64,11 @@ pub fn trace_pixel(
         let hit = ray_origin + ray_direction * trace_result.t;
 
         if !trace_result.hit {
-            // skybox
             if config.has_skybox == 0 {
+                // Fallback to procedural skybox
                 radiance += throughput * skybox::scatter(config.sun_direction, ray_origin, ray_direction);
             } else {
+                // Read skybox from image
                 let rotation = config.sun_direction.z.atan2(config.sun_direction.x);
                 let rotated = Mat3::from_rotation_y(rotation) * ray_direction;
                 let u = 0.5 + rotated.z.atan2(rotated.x) / (2.0 * core::f32::consts::PI);
