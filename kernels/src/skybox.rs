@@ -1,4 +1,4 @@
-use spirv_std::glam::{Vec2, Vec3};
+use spirv_std::glam::{Vec2, Vec3, Vec4, Vec4Swizzles};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 
@@ -9,7 +9,6 @@ const RAY_SCATTER_COEFF: Vec3 = Vec3::new(58e-7, 135e-7, 331e-7);
 const RAY_EFFECTIVE_COEFF: Vec3 = RAY_SCATTER_COEFF; // Rayleight doesn't absorb light
 const MIE_SCATTER_COEFF: Vec3 = Vec3::new(2e-5, 2e-5, 2e-5);
 const MIE_EFFECTIVE_COEFF: Vec3 = Vec3::new(2e-5 * 1.1, 2e-5 * 1.1, 2e-5 * 1.1); // Approximate absorption as a factor of scattering
-const SUN_INTENSITY: Vec3 = Vec3::new(15.0, 15.0, 15.0); // sun is modelled as infinitely far away
 const EARTH_RADIUS: f32 = 6360e3;
 const ATMOSPHERE_RADIUS: f32 = 6380e3;
 const H_RAY: f32 = 8e3;
@@ -73,18 +72,17 @@ fn scatter_in(origin: Vec3, direction: Vec3, depth: f32, steps: u32, sundir: Vec
     (i_r, i_m)
 }
 
-pub fn scatter(origin: Vec3, direction: Vec3) -> Vec3 {
-    let sundir = (Vec3::new(0.5, 1.3, 1.0)).normalize();
+pub fn scatter(sundir: Vec4, origin: Vec3, direction: Vec3) -> Vec3 {
     let (i_r, i_m) = scatter_in(
         origin,
         direction,
         escape(origin, direction, ATMOSPHERE_RADIUS),
         12,
-        sundir,
+        sundir.xyz(),
     );
 
-    let mu = direction.dot(sundir);
-    let res = SUN_INTENSITY
+    let mu = direction.dot(sundir.xyz());
+    let res = sundir.w
         * (1. + mu * mu)
         * (
             // 3/16pi = 0.597

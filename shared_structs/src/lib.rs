@@ -15,10 +15,12 @@ pub struct TracingConfig {
     pub height: u32,
     pub min_bounces: u32,
     pub max_bounces: u32,
+    pub sun_direction: Vec4,
     pub nee: u32,
-    pub _padding0: u32,
+
     pub _padding1: u32,
     pub _padding2: u32,
+    pub _padding3: u32,
 }
 
 impl Default for TracingConfig {
@@ -30,10 +32,12 @@ impl Default for TracingConfig {
             height: 720,
             min_bounces: 3,
             max_bounces: 4,
+            sun_direction: Vec3::new(0.5, 1.3, 1.0).normalize().extend(15.0),
             nee: 0,
-            _padding0: 0,
+
             _padding1: 0,
             _padding2: 0,
+            _padding3: 0,
         }
     }
 }

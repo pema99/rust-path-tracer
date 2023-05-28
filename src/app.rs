@@ -40,6 +40,7 @@ pub struct App {
     use_cpu: bool,
     tonemapping: Tonemapping,
     selected_scene: String,
+    show_environment_window: bool,
     last_input: Instant,
     mouse_delta: (f32, f32),
 
@@ -132,6 +133,7 @@ impl App {
             selected_scene: "scene.glb".to_string(),
             tonemapping: Tonemapping::None,
             use_cpu: false,
+            show_environment_window: false,
         }
     }
 
@@ -209,6 +211,11 @@ impl App {
     }
 
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
+        self.on_settings_gui(egui_ctx);
+        self.on_environment_gui(egui_ctx);
+    }
+
+    fn on_settings_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Settings").show(egui_ctx, |ui| {
             egui::Grid::new("MainGrid")
             .striped(true)
@@ -307,6 +314,14 @@ impl App {
                     });
                 ui.end_row();
 
+                if ui.button("Environment settings").clicked() {
+                    self.show_environment_window = !self.show_environment_window;
+                }
+                ui.end_row();
+
+                ui.separator();
+                ui.end_row();
+
                 egui::ComboBox::from_label("Compute device")
                     .selected_text(if self.use_cpu { "CPU" } else { "GPU" })
                     .show_ui(ui, |ui| {
@@ -336,6 +351,64 @@ impl App {
                     self.samples.load(Ordering::Relaxed)
                 ));
                 ui.end_row();
+            });
+        });
+    }
+
+    fn on_environment_gui(&mut self, egui_ctx: &egui::Context) {
+        egui::Window::new("Environment").open(&mut self.show_environment_window).show(egui_ctx, |ui| {
+            let mouse_down = ui.input().pointer.primary_down();
+            let sun_direction = self.config.read().sun_direction;
+
+            let mut sun_intensity = sun_direction.w;
+            if ui.add(egui::Slider::new(&mut sun_intensity, 0.0..=50.0).text("Sun intensity")).changed() {
+                self.config.write().sun_direction.w = sun_intensity;
+                self.dirty.store(true, Ordering::Relaxed);
+            }
+            ui.end_row();
+
+            egui::plot::Plot::new("Sun position")
+                .view_aspect(1.0)
+                .allow_drag(false)
+                .allow_zoom(false)
+                .allow_scroll(false)
+                .allow_boxed_zoom(false)
+                .height(250.0)
+                .show(ui, |ui| {
+                let n = 512;
+                let circle_points: egui::plot::PlotPoints = (0..=n)
+                    .map(|i| {
+                        let t = egui::remap(i as f64, 0.0..=(n as f64), 0.0..=6.28);
+                        let r = 1.0;
+                        [
+                            r * t.cos() + 0.0 as f64,
+                            r * t.sin() + 0.0 as f64,
+                        ]
+                    })
+                    .collect();
+                ui.line(egui::plot::Line::new(circle_points));
+
+                let sun_pos = [sun_direction.x as f64, sun_direction.z as f64];
+                ui.points(egui::plot::Points::new(vec![sun_pos])
+                    .color(egui::Color32::GOLD)
+                    .shape(egui::plot::MarkerShape::Asterisk)
+                    .radius(8.0)
+                    .name("Sun position"));
+                
+                let pointer = ui.pointer_coordinate();
+                if let Some(pointer) = pointer {
+                    if mouse_down && pointer.x.abs() <= 1.0 && pointer.y.abs() <= 1.0 {
+                        let mut new_pos = pointer.to_vec2();
+                        if new_pos.length() > 1.0 {
+                            new_pos = new_pos.normalized();
+                        }
+                        let new_pos_y = (1.0 - new_pos.x * new_pos.x - new_pos.y * new_pos.y).sqrt();
+                        let new_pos_vec = Vec3::new(new_pos.x as f32, new_pos_y as f32, new_pos.y as f32).normalize();
+                        
+                        self.config.write().sun_direction = new_pos_vec.extend(sun_direction.w);
+                        self.dirty.store(true, Ordering::Relaxed);
+                    }
+                }
             });
         });
     }

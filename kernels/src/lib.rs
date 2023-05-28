@@ -65,7 +65,7 @@ pub fn trace_pixel(
 
         if !trace_result.hit {
             // skybox
-            radiance += throughput * skybox::scatter(ray_origin, ray_direction);
+            radiance += throughput * skybox::scatter(config.sun_direction, ray_origin, ray_direction);
             break;
         } else {
             // Get material
