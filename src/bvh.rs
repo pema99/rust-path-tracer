@@ -265,7 +265,7 @@ impl<'a> BVHBuilder<'a> {
         let mut stack = vec![0];
         while !stack.is_empty() {
             // get the next root node
-            let node_idx = stack.pop().unwrap();
+            let node_idx = stack.pop().expect("BVH build stack is empty.");
             let node = &self.nodes[node_idx];
 
             // calculate the best split (SAH)

@@ -30,7 +30,7 @@ fn main() {
             height,
         })
         .build(&event_loop)
-        .unwrap();
+        .expect("Building window failed");
 
     let mut platform = Platform::new(PlatformDescriptor {
         physical_width: width,

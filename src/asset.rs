@@ -1,6 +1,6 @@
 use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
 use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
-use image::DynamicImage;
+use image::{DynamicImage, GenericImageView};
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData, LightPickEntry};
 
@@ -52,7 +52,7 @@ fn load_float_array(material: &Material, name: &str) -> Option<Vec<f32>> {
 }
 
 impl World {
-    pub fn from_path(path: &str) -> Self {
+    pub fn from_path(path: &str) -> Option<Self> {
         let blend = Scene::from_file(
             path,
             vec![
@@ -66,8 +66,7 @@ impl World {
                 EmbedTextures,
                 ImproveCacheLocality,
             ],
-        )
-        .unwrap();
+        ).ok()?;
 
         // Gather mesh data
         let mut vertices = Vec::new();
@@ -214,14 +213,14 @@ impl World {
                 ..Default::default()
             });
         }
-        Self {
+        Some(Self {
             bvh,
             per_vertex_buffer: per_vertex_data,
             index_buffer: indices,
             atlas: atlas_raw,
             material_data_buffer: material_datas,
             light_pick_buffer: light_pick_table,
-        }
+        })
     }
 
     pub fn into_gpu<'fw>(self) -> GpuWorld<'fw> {
@@ -234,4 +233,38 @@ impl World {
             light_pick_buffer: GpuBuffer::from_slice(&FW, &self.light_pick_buffer),
         }
     }
+}
+
+pub fn load_dynamic_image<'fw>(path: &str) -> Option<DynamicImage> {
+    Some(image::io::Reader::open(path).unwrap().decode().unwrap())
+}
+
+pub fn dynamic_image_to_gpu_image<'fw>(img: DynamicImage) -> GpuConstImage<'fw, Rgba8UintNorm> {
+    GpuConstImage::from_bytes(&FW, &img.to_rgba8(), img.width(), img.height())
+}
+
+pub fn dynamic_image_to_cpu_buffer<'img>(img: DynamicImage) -> Vec<Vec4> {
+    let width = img.width();
+    let height = img.height();
+    let data = img.into_rgb8();
+    let cpu_data: Vec<Vec4> = data.chunks(3).map(|f| Vec4::new(f[0] as f32, f[1] as f32, f[2] as f32, 255.0) / 255.0).collect();
+    assert_eq!(cpu_data.len(), width as usize * height as usize);
+    cpu_data
+}
+
+pub fn fallback_gpu_image<'fw>() -> GpuConstImage<'fw, Rgba8UintNorm> {
+    GpuConstImage::from_bytes(&FW, &[
+        255, 0, 255, 255,
+        255, 0, 255, 255,
+        255, 0, 255, 255,
+        255, 0, 255, 255], 2, 2)
+}
+
+pub fn fallback_cpu_buffer() -> Vec<Vec4> {
+    vec![
+        Vec4::new(1.0, 0.0, 1.0, 1.0),
+        Vec4::new(1.0, 0.0, 1.0, 1.0),
+        Vec4::new(1.0, 0.0, 1.0, 1.0),
+        Vec4::new(1.0, 0.0, 1.0, 1.0),
+    ]
 }

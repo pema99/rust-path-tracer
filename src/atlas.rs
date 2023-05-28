@@ -32,9 +32,8 @@ pub fn pack_textures(textures: &[DynamicImage], atlas_width: u32, atlas_height: 
     };
     let mut queue = VecDeque::from([root]);
 
-    // This ain't great performance-wise, but whatever
     while queue.len() <= textures.len() {
-        let node = queue.pop_front().unwrap();
+        let node = queue.pop_front().expect("Texture packing queue was empty.");
         let half_width = node.width / 2;
         let half_height = node.height / 2;
         queue.extend([

@@ -31,6 +31,7 @@ pub struct App {
     use_cpu: bool,
     tonemapping: Tonemapping,
     selected_scene: String,
+    selected_skybox: Option<String>,
     show_environment_window: bool,
     last_input: Instant,
     mouse_delta: (f32, f32),
@@ -53,7 +54,7 @@ impl App {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         }))
-        .unwrap();
+        .expect("Failed to creator wgpu adapter.");
     
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -63,7 +64,7 @@ impl App {
             },
             None,
         ))
-        .unwrap();
+        .expect("Failed to creator wgpu device.");
 
         let size = window.inner_size();
         let surface_format = surface.get_supported_formats(&adapter)[0];
@@ -92,6 +93,7 @@ impl App {
             egui_renderer,
             compute_join_handle: None,
             selected_scene: "scene.glb".to_string(),
+            selected_skybox: None,
             tonemapping: Tonemapping::None,
             use_cpu: false,
             show_environment_window: false,
@@ -123,11 +125,13 @@ impl App {
 
         let use_cpu = self.use_cpu;
         let path = self.selected_scene.clone();
+        let skybox_path = self.selected_skybox.clone();
         self.compute_join_handle = Some(std::thread::spawn(move || {
+            let skybox_path_ref = skybox_path.as_ref().map(|s| s.as_str());
             if use_cpu {
-                trace_cpu(&path, tracing_state);
+                trace_cpu(&path, skybox_path_ref, tracing_state);
             } else {
-                trace_gpu(&path, tracing_state);
+                trace_gpu(&path, skybox_path_ref, tracing_state);
             }
         }));
     }
@@ -137,8 +141,14 @@ impl App {
         self.tracing_state.running.store(false, Ordering::Relaxed);
 
         if let Some(handle) = self.compute_join_handle.take() {
-            handle.join().unwrap();
+            handle.join().expect("Render thread died.");
             self.compute_join_handle = None;
+        }
+    }
+
+    fn restart_current_render(&mut self) {
+        if self.compute_join_handle.is_some() {
+            self.start_render();
         }
     }
 
@@ -155,7 +165,7 @@ impl App {
                 ui.vertical(|ui| {
                     ui.label(format!("Selected scene: {}", self.selected_scene));
                     ui.horizontal(|ui| {
-                        if self.tracing_state.running.load(Ordering::Relaxed) {
+                        if self.compute_join_handle.as_ref().map_or(false, |t| !t.is_finished()) {
                             if ui.button("Stop").clicked() {
                                 self.stop_render();
                             }
@@ -259,15 +269,11 @@ impl App {
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(!self.use_cpu, "GPU").clicked() { 
                             self.use_cpu = false;
-                            if self.compute_join_handle.is_some() {
-                                self.start_render();
-                            }
+                            self.restart_current_render();
                         };
                         if ui.selectable_label(self.use_cpu, "CPU").clicked() {
                             self.use_cpu = true;
-                            if self.compute_join_handle.is_some() {
-                                self.start_render();
-                            }
+                            self.restart_current_render();
                         };
                     });
                 ui.end_row();
@@ -288,9 +294,28 @@ impl App {
     }
 
     fn on_environment_gui(&mut self, egui_ctx: &egui::Context) {
-        egui::Window::new("Environment").open(&mut self.show_environment_window).show(egui_ctx, |ui| {
+        let mut show_environment_window = self.show_environment_window;
+        egui::Window::new("Environment").open(&mut show_environment_window).show(egui_ctx, |ui| {
             let mouse_down = ui.input().pointer.primary_down();
             let sun_direction = self.tracing_state.config.read().sun_direction;
+            {
+                let skybox_name = self.selected_skybox.as_ref().map(|s| s.as_ref()).unwrap_or("Procedural");
+                ui.label(format!("Selected skybox: {}", skybox_name));
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Select skybox").clicked() {
+                    if let Some(path) = tinyfiledialogs::open_file_dialog("Select skybox", "", None) {
+                        self.selected_skybox.replace(path);
+                        self.tracing_state.config.write().has_skybox = 1;
+                        self.restart_current_render();
+                    }
+                }
+                if ui.button("Reset skybox").clicked() {
+                    self.selected_skybox.take();
+                    self.tracing_state.config.write().has_skybox = 0;
+                    self.restart_current_render();
+                }
+            });
 
             let mut sun_intensity = sun_direction.w;
             if ui.add(egui::Slider::new(&mut sun_intensity, 0.0..=50.0).text("Sun intensity")).changed() {
@@ -343,6 +368,7 @@ impl App {
                 }
             });
         });
+        self.show_environment_window = show_environment_window;
     }
 
     fn handle_input(&mut self, ui: &egui::Ui) {
@@ -503,7 +529,7 @@ impl App {
                 size.width as f32 / 2.0,
                 size.height as f32 / 2.0,
             );
-            self.window.set_cursor_position(center).unwrap();
+            let _ = self.window.set_cursor_position(center);
         }
     }
 
@@ -516,7 +542,7 @@ impl App {
     }
 
     pub fn handle_file_dropped(&mut self, path: &std::path::Path) {
-        self.selected_scene = path.to_str().unwrap().to_string();
+        self.selected_scene = path.to_str().expect("Path was not valid utf8.").to_string();
         self.start_render();
     }
 }
@@ -726,7 +752,9 @@ impl PaintCallbackResources {
             device.poll(wgpu::Maintain::Wait);
             let data = buffer_slice.get_mapped_range();
         
-            let buffer = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()).unwrap();
+            let Some(buffer) = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()) else {
+                return;
+            };
             let image = image::DynamicImage::ImageBgra8(buffer).into_rgba8();
             if let Some(path) = tinyfiledialogs::save_file_dialog("Save render", "") {
                 let res = image.save(path);

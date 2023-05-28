@@ -7,11 +7,12 @@ lazy_static::lazy_static! {
 
 use glam::{UVec2, Vec4, UVec3};
 use gpgpu::{
-    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode
+    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode, GpuConstImage, primitives::pixels::Rgba8UintNorm
 };
 use image::{RgbaImage, io::Reader, GenericImageView};
 use parking_lot::RwLock;
 use pollster::FutureExt;
+use shared_structs::CpuImage;
 pub use shared_structs::TracingConfig;
 use std::{sync::{
     atomic::{Ordering, AtomicBool, AtomicU32},
@@ -19,7 +20,7 @@ use std::{sync::{
 }, io::Cursor};
 use rayon::prelude::*;
 
-use crate::{asset::{World, GpuWorld}};
+use crate::{asset::{World, GpuWorld, dynamic_image_to_cpu_buffer, load_dynamic_image, dynamic_image_to_gpu_image, fallback_gpu_image, fallback_cpu_buffer}};
 
 fn make_framework() -> gpgpu::Framework {
     let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
@@ -75,7 +76,7 @@ impl TracingState {
         let use_blue_noise = AtomicBool::new(true);
         let interacting = AtomicBool::new(false);
         let dirty = AtomicBool::new(false);
-
+        
         Self {
             framebuffer,
             running,
@@ -98,6 +99,7 @@ impl<'fw> PathTracingKernel<'fw> {
         rng_buffer: &GpuBuffer<'fw, UVec2>,
         output_buffer: &GpuBuffer<'fw, Vec4>,
         world: &GpuWorld<'fw>,
+        skybox: &GpuConstImage<'fw, Rgba8UintNorm>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);
@@ -111,7 +113,8 @@ impl<'fw> PathTracingKernel<'fw> {
             .bind_buffer(&world.material_data_buffer, GpuBufferUsage::ReadOnly)
             .bind_buffer(&world.light_pick_buffer, GpuBufferUsage::ReadOnly)
             .bind_sampler(&sampler)
-            .bind_const_image(&world.atlas);
+            .bind_const_image(&world.atlas)
+            .bind_const_image(&skybox);
         let program = Program::new(&shader, "trace_kernel").add_descriptor_set(bindings);
         let kernel = Kernel::new(&FW, program);
 
@@ -131,9 +134,13 @@ fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
 
 pub fn trace_gpu(
     scene_path: &str,
+    skybox_path: Option<&str>,
     state: Arc<TracingState>,
 ) {
-    let world = World::from_path(scene_path).into_gpu();
+    let Some(world) = World::from_path(scene_path).map(|w| w.into_gpu()) else {
+        return;
+    };
+    let skybox = skybox_path.and_then(load_dynamic_image).map(dynamic_image_to_gpu_image).unwrap_or_else(|| fallback_gpu_image());
 
     let screen_width = state.config.read().width;
     let screen_height = state.config.read().height;
@@ -159,7 +166,7 @@ pub fn trace_gpu(
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 
-    let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world);
+    let rt = PathTracingKernel::new(&config_buffer, &rng_buffer, &output_buffer, &world, &skybox);
 
     while state.running.load(Ordering::Relaxed) {
         // Dispatch
@@ -182,7 +189,7 @@ pub fn trace_gpu(
         state.samples.fetch_add(finished_samples, Ordering::Relaxed);
 
         // Readback from GPU
-        output_buffer.read_blocking(&mut image_buffer_raw).unwrap();
+        let _ = output_buffer.read_blocking(&mut image_buffer_raw);
         let sample_count = state.samples.load(Ordering::Relaxed) as f32;
         for (i, col) in image_buffer_raw.iter().enumerate() {
             image_buffer[i * 3] = col.x / sample_count;
@@ -203,18 +210,29 @@ pub fn trace_gpu(
         if flush {
             state.dirty.store(false, Ordering::Relaxed);
             state.samples.store(0, Ordering::Relaxed);
-            config_buffer.write(&[*state.config.read()]).unwrap();
-            output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]).unwrap();
-            rng_buffer.write(if state.use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform }).unwrap();
+            let _ = config_buffer.write(&[*state.config.read()]);
+            let _ = output_buffer.write(&vec![Vec4::ZERO; pixel_count as usize]);
+            let _ = rng_buffer.write(if state.use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
         }
     }
 }
 
 pub fn trace_cpu(
     scene_path: &str,
+    skybox_path: Option<&str>,
     state: Arc<TracingState>,
 ) {
-    let world = World::from_path(scene_path);
+    let Some(world) = World::from_path(scene_path) else {
+        return;
+    };
+    let mut skybox_image_buffer = fallback_cpu_buffer();
+    let mut skybox_size = (2, 2);
+    if let Some(skybox_source) = skybox_path.and_then(load_dynamic_image) {
+        println!("{:?}", skybox_path);
+        skybox_size = skybox_source.dimensions();
+        skybox_image_buffer = dynamic_image_to_cpu_buffer(skybox_source);
+    }
+    let skybox_image = CpuImage::new(&skybox_image_buffer, skybox_size.0, skybox_size.1);
 
     let screen_width = state.config.read().width;
     let screen_height = state.config.read().height;
@@ -240,10 +258,8 @@ pub fn trace_cpu(
 
     let atlas_width = world.atlas.width();
     let atlas_height = world.atlas.height();
-    let atlas_data = world.atlas.into_rgb8();
-    let atlas_cpu: Vec<Vec4> = atlas_data.chunks(3).map(|f| Vec4::new(f[0] as f32, f[1] as f32, f[2] as f32, 255.0) / 255.0).collect();
-    assert_eq!(atlas_cpu.len(), atlas_width as usize * atlas_height as usize);
-    let atlas_image = shared_structs::Image::new(&atlas_cpu, atlas_width, atlas_height);
+    let atlas_buffer = dynamic_image_to_cpu_buffer(world.atlas);
+    let atlas_image = CpuImage::new(&atlas_buffer, atlas_width, atlas_height);
 
     while state.running.load(Ordering::Relaxed) {
         // Dispatch
@@ -264,7 +280,8 @@ pub fn trace_cpu(
                         &world.material_data_buffer,
                         &world.light_pick_buffer,
                         &shared_structs::Sampler,
-                        &atlas_image
+                        &atlas_image,
+                        &skybox_image,
                     );
                     output[x as usize] += radiance;
                     rng[x as usize] = rng_state;

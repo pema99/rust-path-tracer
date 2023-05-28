@@ -5,6 +5,9 @@ use glam::{Vec3, Vec4, Vec4Swizzles, Vec2};
 
 mod image_polyfill;
 pub use image_polyfill::polyfill::{Image, Sampler};
+#[cfg(not(target_arch = "spirv"))]
+pub use image_polyfill::polyfill::CpuImage;
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -17,8 +20,8 @@ pub struct TracingConfig {
     pub max_bounces: u32,
     pub sun_direction: Vec4,
     pub nee: u32,
+    pub has_skybox: u32,
 
-    pub _padding1: u32,
     pub _padding2: u32,
     pub _padding3: u32,
 }
@@ -34,8 +37,8 @@ impl Default for TracingConfig {
             max_bounces: 4,
             sun_direction: Vec3::new(0.5, 1.3, 1.0).normalize().extend(15.0),
             nee: 0,
+            has_skybox: 0,
 
-            _padding1: 0,
             _padding2: 0,
             _padding3: 0,
         }

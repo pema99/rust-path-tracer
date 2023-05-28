@@ -20,7 +20,7 @@ pub mod polyfill {
     }
 
     impl<'a, A> Image<'a, A,A,A,A,A,A> {
-        pub fn new (buffer: &'a [Vec4], width: u32, height: u32) -> Self {
+        pub const fn new (buffer: &'a [Vec4], width: u32, height: u32) -> Self {
             Image {
                 _phantom: core::marker::PhantomData,
                 width,
@@ -59,4 +59,6 @@ pub mod polyfill {
     macro_rules! Image {
         ($a:expr, $b:ident=$d:ident, $c:expr) => { Image<(), (), (), (), (), ()> };
     }
+
+    pub type CpuImage<'fw> = Image<'fw, (),(),(),(),(),()>;
 }

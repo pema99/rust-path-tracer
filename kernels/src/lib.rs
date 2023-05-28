@@ -29,6 +29,7 @@ pub fn trace_pixel(
     light_pick_buffer: &[LightPickEntry],
     sampler: &Sampler,
     atlas: &Image!(2D, type=f32, sampled),
+    skybox: &Image!(2D, type=f32, sampled),
 ) -> (Vec4, UVec2) {
     let nee_mode = NextEventEstimation::from_u32(config.nee);
     let nee = nee_mode.uses_nee();
@@ -64,7 +65,13 @@ pub fn trace_pixel(
 
         if !trace_result.hit {
             // skybox
-            radiance += throughput * skybox::scatter(config.sun_direction, ray_origin, ray_direction);
+            if config.has_skybox == 0 {
+                radiance += throughput * skybox::scatter(config.sun_direction, ray_origin, ray_direction);
+            } else {
+                let u = 0.5 + ray_direction.z.atan2(ray_direction.x) / (2.0 * core::f32::consts::PI);
+                let v = 1.0 - (0.5 + ray_direction.y.asin() / core::f32::consts::PI);
+                radiance += throughput * skybox.sample_by_lod(*sampler, Vec2::new(u, v), 0.0).xyz();
+            }
             break;
         } else {
             // Get material
@@ -188,6 +195,7 @@ pub fn trace_kernel(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] light_pick_buffer: &[LightPickEntry],
     #[spirv(descriptor_set = 0, binding = 8)] sampler: &Sampler,
     #[spirv(descriptor_set = 0, binding = 9)] atlas: &Image!(2D, type=f32, sampled),
+    #[spirv(descriptor_set = 0, binding = 10)] skybox: &Image!(2D, type=f32, sampled),
 ) {
     // Handle non-divisible workgroup sizes.
     if id.x > config.width || id.y > config.height {
@@ -207,6 +215,7 @@ pub fn trace_kernel(
         light_pick_buffer,
         sampler,
         atlas,
+        skybox,
     );
     
     output[index] += radiance;
