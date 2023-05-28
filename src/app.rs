@@ -1,6 +1,6 @@
 
 use std::num::NonZeroU32;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 use std::{iter, sync::Arc};
 
@@ -10,10 +10,9 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 
 use glam::{Mat3, Vec3};
-use parking_lot::RwLock;
-use shared_structs::{TracingConfig, NextEventEstimation};
+use shared_structs::NextEventEstimation;
 
-use crate::trace::{trace_cpu, trace_gpu};
+use crate::trace::{trace_cpu, trace_gpu, TracingState};
 
 #[repr(u32)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -26,15 +25,7 @@ enum Tonemapping {
 }
 
 pub struct App {
-    framebuffer: Arc<RwLock<Vec<f32>>>,
-    running: Arc<AtomicBool>,
-    samples: Arc<AtomicU32>,
-    denoise: Arc<AtomicBool>,
-    sync_rate: Arc<AtomicU32>,
-    use_blue_noise: Arc<AtomicBool>,
-    interacting: Arc<AtomicBool>,
-    dirty: Arc<AtomicBool>,
-    config: Arc<RwLock<TracingConfig>>,
+    tracing_state: Arc<TracingState>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
     use_cpu: bool,
@@ -53,23 +44,8 @@ pub struct App {
     egui_renderer: egui_wgpu::renderer::Renderer,
 }
 
-fn make_view_dependent_state(
-    width: u32,
-    height: u32,
-    config: Option<TracingConfig>,
-) -> (Arc<RwLock<TracingConfig>>, Arc<RwLock<Vec<f32>>>) {
-    let config = Arc::new(RwLock::new(TracingConfig {
-        width,
-        height,
-        ..config.unwrap_or_default()
-    }));
-    let data_size = width as usize * height as usize * 3;
-    let framebuffer = Arc::new(RwLock::new(vec![0.0; data_size]));
-    (config, framebuffer)
-}
-
 impl App {
-    pub fn new(window: winit::window::Window, width: u32, height: u32) -> Self {    
+    pub fn new(window: winit::window::Window) -> Self {    
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let surface = unsafe { instance.create_surface(&window) };
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -101,25 +77,10 @@ impl App {
         };
         surface.configure(&device, &surface_config);
 
-        let (config, framebuffer) = make_view_dependent_state(width, height, None);
-        let running = Arc::new(AtomicBool::new(false));
-        let samples = Arc::new(AtomicU32::new(0));
-        let denoise = Arc::new(AtomicBool::new(false));
-        let sync_rate = Arc::new(AtomicU32::new(32));
-        let use_blue_noise = Arc::new(AtomicBool::new(true));
-        let interacting = Arc::new(AtomicBool::new(false));
-        let dirty = Arc::new(AtomicBool::new(false));
         let egui_renderer = egui_wgpu::renderer::Renderer::new(&device, surface_format, None, 1);
+        let tracing_state = Arc::new(TracingState::new(size.width, size.height));
         Self {
-            framebuffer,
-            running,
-            samples,
-            denoise,
-            sync_rate,
-            use_blue_noise,
-            interacting,
-            dirty,
-            config,
+            tracing_state,
             last_input: Instant::now(),
             mouse_delta: (0.0, 0.0),
             device,
@@ -149,60 +110,31 @@ impl App {
         self.window.set_resizable(false);
         let size = self.window.inner_size();
 
-        let (config, framebuffer) = make_view_dependent_state(size.width, size.height, Some(*self.config.read()));
-        self.config = config;
-        self.framebuffer = framebuffer;
-        self.samples.store(0, Ordering::Relaxed);
+        let (config, framebuffer) = TracingState::make_view_dependent_state(size.width, size.height, Some(*self.tracing_state.config.read()));
+        *self.tracing_state.config.write() = config;
+        *self.tracing_state.framebuffer.write() = framebuffer;
+        self.tracing_state.samples.store(0, Ordering::Relaxed);
 
         let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, size.width, size.height);
         self.egui_renderer.paint_callback_resources.insert(render_resources);
 
-        self.running.store(true, Ordering::Relaxed);
-        let data = self.framebuffer.clone();
-        let running = self.running.clone();
-        let samples = self.samples.clone();
-        let denoise = self.denoise.clone();
-        let sync_rate = self.sync_rate.clone();
-        let use_blue_noise = self.use_blue_noise.clone();
-        let interacting = self.interacting.clone();
-        let dirty = self.dirty.clone();
-        let config = self.config.clone();
+        self.tracing_state.running.store(true, Ordering::Relaxed);
+        let tracing_state = self.tracing_state.clone();
 
         let use_cpu = self.use_cpu;
         let path = self.selected_scene.clone();
         self.compute_join_handle = Some(std::thread::spawn(move || {
             if use_cpu {
-                trace_cpu(
-                    &path,
-                    data,
-                    running,
-                    samples,
-                    denoise,
-                    use_blue_noise,
-                    interacting,
-                    dirty,
-                    config,
-                );
+                trace_cpu(&path, tracing_state);
             } else {
-                trace_gpu(
-                    &path,
-                    data,
-                    running,
-                    samples,
-                    denoise,
-                    sync_rate,
-                    use_blue_noise,
-                    interacting,
-                    dirty,
-                    config,
-                );
+                trace_gpu(&path, tracing_state);
             }
         }));
     }
 
     fn stop_render(&mut self) {
         self.window.set_resizable(true);
-        self.running.store(false, Ordering::Relaxed);
+        self.tracing_state.running.store(false, Ordering::Relaxed);
 
         if let Some(handle) = self.compute_join_handle.take() {
             handle.join().unwrap();
@@ -223,7 +155,7 @@ impl App {
                 ui.vertical(|ui| {
                     ui.label(format!("Selected scene: {}", self.selected_scene));
                     ui.horizontal(|ui| {
-                        if self.running.load(Ordering::Relaxed) {
+                        if self.tracing_state.running.load(Ordering::Relaxed) {
                             if ui.button("Stop").clicked() {
                                 self.stop_render();
                             }
@@ -242,8 +174,8 @@ impl App {
 
                         if ui.button("Save image").clicked() {
                             if let Some(resources) = self.egui_renderer.paint_callback_resources.get::<PaintCallbackResources>() {
-                                let width = self.config.read().width;
-                                let height = self.config.read().height;
+                                let width = self.tracing_state.config.read().width;
+                                let height = self.tracing_state.config.read().height;
                                 resources.save_render(width, height, self.surface_format, &self.device, &self.queue);
                             }
                         }
@@ -254,27 +186,27 @@ impl App {
                 ui.horizontal(|ui| {
                     #[cfg(feature = "oidn")]
                     {
-                        let mut denoise_checked = self.denoise.load(Ordering::Relaxed);
+                        let mut denoise_checked = self.tracing_state.denoise.load(Ordering::Relaxed);
                         if ui.checkbox(&mut denoise_checked, "Denoise").changed() {
-                            self.denoise.store(denoise_checked, Ordering::Relaxed);
+                            self.tracing_state.denoise.store(denoise_checked, Ordering::Relaxed);
                         }
                     }
     
-                    let mut use_blue_noise = self.use_blue_noise.load(Ordering::Relaxed);
+                    let mut use_blue_noise = self.tracing_state.use_blue_noise.load(Ordering::Relaxed);
                     if ui.checkbox(&mut use_blue_noise, "Use blue noise").changed() {
-                        self.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
-                        self.dirty.store(true, Ordering::Relaxed);
+                        self.tracing_state.use_blue_noise.store(use_blue_noise, Ordering::Relaxed);
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
                     }
                 });
                 ui.end_row();
     
                 ui.horizontal(|ui| {
-                    let mut config = self.config.write();
+                    let mut config = self.tracing_state.config.write();
                     if ui.add(egui::DragValue::new(&mut config.min_bounces)).changed() {
                         if config.min_bounces > config.max_bounces {
                             config.max_bounces = config.min_bounces;
                         }
-                        self.dirty.store(true, Ordering::Relaxed);
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
                     }
                     ui.label("Min bounces");
     
@@ -282,13 +214,13 @@ impl App {
                         if config.max_bounces < config.min_bounces {
                             config.min_bounces = config.max_bounces;
                         }
-                        self.dirty.store(true, Ordering::Relaxed);
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
                     }
                     ui.label("Max bounces");
                 });
                 ui.end_row();
 
-                let prev_nee_mode = NextEventEstimation::from_u32(self.config.read().nee);
+                let prev_nee_mode = NextEventEstimation::from_u32(self.tracing_state.config.read().nee);
                 let mut nee_mode = prev_nee_mode;
                 egui::ComboBox::from_label("Next event estimation")
                     .selected_text(format!("{:?}", nee_mode))
@@ -298,8 +230,8 @@ impl App {
                         ui.selectable_value(&mut nee_mode, NextEventEstimation::DirectLightSampling, "Direct light sampling only");
                     });
                 if nee_mode != prev_nee_mode {
-                    self.config.write().nee = nee_mode.to_u32();
-                    self.dirty.store(true, Ordering::Relaxed);
+                    self.tracing_state.config.write().nee = nee_mode.to_u32();
+                    self.tracing_state.dirty.store(true, Ordering::Relaxed);
                 }
                 ui.end_row();
 
@@ -340,15 +272,15 @@ impl App {
                     });
                 ui.end_row();
 
-                let mut sync_rate = self.sync_rate.load(Ordering::Relaxed);
+                let mut sync_rate = self.tracing_state.sync_rate.load(Ordering::Relaxed);
                 if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut sync_rate, 1..=256).text("GPU sync rate")).changed() {
-                    self.sync_rate.store(sync_rate, Ordering::Relaxed);
+                    self.tracing_state.sync_rate.store(sync_rate, Ordering::Relaxed);
                 }
                 ui.end_row();
         
                 ui.label(format!(
                     "Samples: {}",
-                    self.samples.load(Ordering::Relaxed)
+                    self.tracing_state.samples.load(Ordering::Relaxed)
                 ));
                 ui.end_row();
             });
@@ -358,12 +290,12 @@ impl App {
     fn on_environment_gui(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Environment").open(&mut self.show_environment_window).show(egui_ctx, |ui| {
             let mouse_down = ui.input().pointer.primary_down();
-            let sun_direction = self.config.read().sun_direction;
+            let sun_direction = self.tracing_state.config.read().sun_direction;
 
             let mut sun_intensity = sun_direction.w;
             if ui.add(egui::Slider::new(&mut sun_intensity, 0.0..=50.0).text("Sun intensity")).changed() {
-                self.config.write().sun_direction.w = sun_intensity;
-                self.dirty.store(true, Ordering::Relaxed);
+                self.tracing_state.config.write().sun_direction.w = sun_intensity;
+                self.tracing_state.dirty.store(true, Ordering::Relaxed);
             }
             ui.end_row();
 
@@ -405,8 +337,8 @@ impl App {
                         let new_pos_y = (1.0 - new_pos.x * new_pos.x - new_pos.y * new_pos.y).sqrt();
                         let new_pos_vec = Vec3::new(new_pos.x as f32, new_pos_y as f32, new_pos.y as f32).normalize();
                         
-                        self.config.write().sun_direction = new_pos_vec.extend(sun_direction.w);
-                        self.dirty.store(true, Ordering::Relaxed);
+                        self.tracing_state.config.write().sun_direction = new_pos_vec.extend(sun_direction.w);
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
                     }
                 }
             });
@@ -420,14 +352,14 @@ impl App {
         self.last_input = Instant::now();
     
         if ui.input().pointer.secondary_down() {
-            self.interacting.store(true, Ordering::Relaxed);
+            self.tracing_state.interacting.store(true, Ordering::Relaxed);
             self.window.set_cursor_visible(false);
         } else {
-            self.interacting.store(false, Ordering::Relaxed);
+            self.tracing_state.interacting.store(false, Ordering::Relaxed);
             self.window.set_cursor_visible(true);
         }
     
-        let mut config = self.config.write();
+        let mut config = self.tracing_state.config.write();
     
         let mut forward = Vec3::new(0.0, 0.0, 1.0);
         let mut right = Vec3::new(1.0, 0.0, 0.0);
@@ -484,9 +416,9 @@ impl App {
                 self.handle_input(ui);
 
                 let rect = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag()).0;
-                let framebuffer = self.framebuffer.clone();
-                let width = self.config.read().width;
-                let height = self.config.read().height;
+                let framebuffer = self.tracing_state.framebuffer.read().clone(); // TODO: clone is slow
+                let width = self.tracing_state.config.read().width;
+                let height = self.tracing_state.config.read().height;
                 let tonemapping = self.tonemapping;
                 let cb = egui_wgpu::CallbackFn::new()
                     .prepare(move |_device, queue, _encoder, typemap| {
@@ -561,7 +493,7 @@ impl App {
     }
 
     pub fn handle_mouse_motion(&mut self, delta: (f64, f64)) {
-        if self.interacting.load(Ordering::Relaxed) {
+        if self.tracing_state.interacting.load(Ordering::Relaxed) {
             self.mouse_delta.0 += delta.0 as f32;
             self.mouse_delta.1 += delta.1 as f32;
 
@@ -600,13 +532,12 @@ impl PaintCallbackResources {
     fn prepare(
         &self,
         queue: &wgpu::Queue,
-        framebuffer: &Arc<RwLock<Vec<f32>>>,
+        framebuffer: &Vec<f32>,
         width: u32,
         height: u32,
         tonemapping: Tonemapping,
     ) {
-        let vec = framebuffer.read();
-        queue.write_buffer(&self.render_buffer, 0, bytemuck::cast_slice(&vec));
+        queue.write_buffer(&self.render_buffer, 0, bytemuck::cast_slice(framebuffer));
         queue.write_buffer(
             &self.uniform_buffer,
             0,

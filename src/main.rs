@@ -40,7 +40,7 @@ fn main() {
         style: Default::default(),
     });
 
-    let mut app = App::new(window, width, height);
+    let mut app = App::new(window);
 
     let start_time = Instant::now();
     event_loop.run(move |event, _, control_flow| {
