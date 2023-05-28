@@ -254,11 +254,10 @@ pub fn trace_cpu(
             let rngs = rng_buffer.par_chunks_mut(screen_width as usize);
             outputs.zip(rngs).for_each(|((y, output), rng)| {
                 for x in 0..screen_width {
-                    kernels::trace_pixel(
+                    let (radiance, rng_state) = kernels::trace_pixel(
                         UVec3::new(x, y as u32, 1),
                         &config,
-                        &mut rng[x as usize],
-                        &mut output[x as usize],
+                        rng[x as usize],
                         &world.per_vertex_buffer,
                         &world.index_buffer,
                         &world.bvh.nodes,
@@ -267,6 +266,8 @@ pub fn trace_cpu(
                         &shared_structs::Sampler,
                         &atlas_image
                     );
+                    output[x as usize] += radiance;
+                    rng[x as usize] = rng_state;
                 }
             });
         }

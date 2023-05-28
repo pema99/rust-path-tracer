@@ -21,8 +21,7 @@ mod light_pick;
 pub fn trace_pixel(
     id: UVec3,
     config: &TracingConfig,
-    rng: &mut UVec2,
-    output: &mut Vec4,
+    rng: UVec2,
     per_vertex_buffer: &[PerVertexData],
     index_buffer: &[UVec4],
     nodes_buffer: &[BVHNode],
@@ -30,10 +29,10 @@ pub fn trace_pixel(
     light_pick_buffer: &[LightPickEntry],
     sampler: &Sampler,
     atlas: &Image!(2D, type=f32, sampled),
-) {
+) -> (Vec4, UVec2) {
     let nee_mode = NextEventEstimation::from_u32(config.nee);
     let nee = nee_mode.uses_nee();
-    let mut rng_state = rng::RngState::new(*rng);
+    let mut rng_state = rng::RngState::new(rng);
 
     // Get anti-aliased pixel coordinates.
     let suv = id.xy().as_vec2() + rng_state.gen_r2();
@@ -172,8 +171,7 @@ pub fn trace_pixel(
         }
     }
 
-    *output += radiance.extend(1.0);
-    *rng = rng_state.next_state();
+    (radiance.extend(1.0), rng_state.next_state())
 }
 
 
@@ -198,17 +196,19 @@ pub fn trace_kernel(
     
     let index = (id.y * config.width + id.x) as usize;
 
-    trace_pixel(
-        id, 
+    let (radiance, rng_state) = trace_pixel(
+        id,
         config,
-        &mut rng[index],
-        &mut output[index],
+        rng[index],
         per_vertex_buffer,
         index_buffer,
         nodes_buffer,
         material_data_buffer,
         light_pick_buffer,
         sampler,
-        atlas
+        atlas,
     );
+    
+    output[index] += radiance;
+    rng[index] = rng_state;
 }
