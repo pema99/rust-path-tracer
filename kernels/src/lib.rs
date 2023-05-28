@@ -68,9 +68,12 @@ pub fn trace_pixel(
             if config.has_skybox == 0 {
                 radiance += throughput * skybox::scatter(config.sun_direction, ray_origin, ray_direction);
             } else {
-                let u = 0.5 + ray_direction.z.atan2(ray_direction.x) / (2.0 * core::f32::consts::PI);
-                let v = 1.0 - (0.5 + ray_direction.y.asin() / core::f32::consts::PI);
-                radiance += throughput * skybox.sample_by_lod(*sampler, Vec2::new(u, v), 0.0).xyz();
+                let rotation = config.sun_direction.z.atan2(config.sun_direction.x);
+                let rotated = Mat3::from_rotation_y(rotation) * ray_direction;
+                let u = 0.5 + rotated.z.atan2(rotated.x) / (2.0 * core::f32::consts::PI);
+                let v = 1.0 - (0.5 + rotated.y.asin() / core::f32::consts::PI);
+                let intensity = config.sun_direction.w * (1.0 / 15.0);
+                radiance += throughput * skybox.sample_by_lod(*sampler, Vec2::new(u, v), 0.0).xyz() * intensity;
             }
             break;
         } else {
