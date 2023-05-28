@@ -24,6 +24,15 @@ enum Tonemapping {
     Uncharted,
 }
 
+fn is_image(img: &str) -> bool {
+    img.ends_with(".png")
+    || img.ends_with(".jpg")
+    || img.ends_with(".jpeg")
+    || img.ends_with(".bmp")
+    || img.ends_with(".tga")
+    || img.ends_with(".hdr")
+}
+
 pub struct App {
     tracing_state: Arc<TracingState>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
@@ -152,6 +161,23 @@ impl App {
         }
     }
 
+    fn set_skybox(&mut self, skybox: &str) {
+        self.selected_skybox = Some(skybox.to_string());
+        self.tracing_state.config.write().has_skybox = 1;
+        self.restart_current_render();
+    }
+
+    fn clear_skybox(&mut self) {
+        self.selected_skybox = None;
+        self.tracing_state.config.write().has_skybox = 0;
+        self.restart_current_render();
+    }
+
+    fn set_scene(&mut self, scene: &str) {
+        self.selected_scene = scene.to_string();
+        self.start_render();
+    }
+
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
         self.on_settings_gui(egui_ctx);
         self.on_environment_gui(egui_ctx);
@@ -177,8 +203,11 @@ impl App {
 
                         if ui.button("Select scene").clicked() {
                             if let Some(path) = tinyfiledialogs::open_file_dialog("Select scene", "", None) {
-                                self.selected_scene = path;
-                                self.start_render();
+                                if is_image(&path) {
+                                    self.set_skybox(&path);
+                                } else {
+                                    self.set_scene(&path);
+                                }
                             }
                         }
 
@@ -305,15 +334,11 @@ impl App {
             ui.horizontal(|ui| {
                 if ui.button("Select skybox").clicked() {
                     if let Some(path) = tinyfiledialogs::open_file_dialog("Select skybox", "", None) {
-                        self.selected_skybox.replace(path);
-                        self.tracing_state.config.write().has_skybox = 1;
-                        self.restart_current_render();
+                        self.set_skybox(&path);
                     }
                 }
                 if ui.button("Reset skybox").clicked() {
-                    self.selected_skybox.take();
-                    self.tracing_state.config.write().has_skybox = 0;
-                    self.restart_current_render();
+                    self.clear_skybox();
                 }
             });
 
@@ -542,8 +567,12 @@ impl App {
     }
 
     pub fn handle_file_dropped(&mut self, path: &std::path::Path) {
-        self.selected_scene = path.to_str().expect("Path was not valid utf8.").to_string();
-        self.start_render();
+        let path_str = path.to_str().expect("Path was not valid utf8.");
+        if is_image(path_str) {
+            self.set_skybox(path_str);
+        } else {
+            self.set_scene(path_str);
+        }
     }
 }
 
