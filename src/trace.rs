@@ -126,7 +126,8 @@ impl<'fw> PathTracingKernel<'fw> {
 fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
     let device = oidn::Device::new();
     oidn::RayTracing::new(&device)
-        .srgb(true)
+        .hdr(true)
+        .srgb(false)
         .image_dimensions(width, height)
         .filter_in_place(input)
         .expect("Filter config error!");
