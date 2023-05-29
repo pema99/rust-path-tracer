@@ -420,23 +420,31 @@ impl App {
         forward = euler_mat * forward;
         right = euler_mat * right;
     
+        let speed = if ui.input().modifiers.shift {
+            0.5
+        } else if ui.input().modifiers.ctrl {
+            0.01
+        } else {
+            0.1
+        };
+
         if ui.input().key_down(egui::Key::W) {
-            config.cam_position += forward.extend(0.0) * 0.1;
+            config.cam_position += forward.extend(0.0) * speed;
         }
         if ui.input().key_down(egui::Key::S) {
-            config.cam_position -= forward.extend(0.0) * 0.1;
+            config.cam_position -= forward.extend(0.0) * speed;
         }
         if ui.input().key_down(egui::Key::D) {
-            config.cam_position += right.extend(0.0) * 0.1;
+            config.cam_position += right.extend(0.0) * speed;
         }
         if ui.input().key_down(egui::Key::A) {
-            config.cam_position -= right.extend(0.0) * 0.1;
+            config.cam_position -= right.extend(0.0) * speed;
         }
         if ui.input().key_down(egui::Key::E) {
-            config.cam_position.y += 0.1;
+            config.cam_position.y += speed;
         }
         if ui.input().key_down(egui::Key::Q) {
-            config.cam_position.y -= 0.1;
+            config.cam_position.y -= speed;
         }
     
         config.cam_rotation.x += self.mouse_delta.1 * 0.005;
