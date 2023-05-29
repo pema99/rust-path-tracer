@@ -235,7 +235,7 @@ impl World {
     }
 }
 
-pub fn load_dynamic_image<'fw>(path: &str) -> Option<DynamicImage> {
+pub fn load_dynamic_image(path: &str) -> Option<DynamicImage> {
     // Image crate does not by default decode .hdr images as HDR for some reason
     if path.ends_with(".hdr") {
         let hdr_decoder = image::codecs::hdr::HdrDecoder::new(std::io::BufReader::new(
