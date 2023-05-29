@@ -1,6 +1,6 @@
 use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
-use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::pixels::{Rgba8UintNorm}, ImgOps};
-use image::{DynamicImage, GenericImageView};
+use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::{pixels::{Rgba8UintNorm, Rgba32Float}, PixelInfo}, ImgOps};
+use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData, LightPickEntry};
 
@@ -236,11 +236,31 @@ impl World {
 }
 
 pub fn load_dynamic_image<'fw>(path: &str) -> Option<DynamicImage> {
-    Some(image::io::Reader::open(path).unwrap().decode().unwrap())
+    // Image crate does not by default decode .hdr images as HDR for some reason
+    if path.ends_with(".hdr") {
+        let hdr_decoder = image::codecs::hdr::HdrDecoder::new(std::io::BufReader::new(
+            std::fs::File::open(&path).unwrap(),
+        )).ok()?;
+        let width = hdr_decoder.metadata().width;
+        let height = hdr_decoder.metadata().height;
+        let buffer = hdr_decoder.read_image_hdr().ok()?;
+        return Some(DynamicImage::ImageRgb32F(image::ImageBuffer::from_vec(
+            width,
+            height,
+            buffer.into_iter().flat_map(|c| vec![c[0], c[1], c[2]]).collect(),
+        )?));
+    }
+
+    image::io::Reader::open(path).ok()?.decode().ok()
 }
 
-pub fn dynamic_image_to_gpu_image<'fw>(img: DynamicImage) -> GpuConstImage<'fw, Rgba8UintNorm> {
-    GpuConstImage::from_bytes(&FW, &img.to_rgba8(), img.width(), img.height())
+pub fn dynamic_image_to_gpu_image<'fw, P: PixelInfo>(img: DynamicImage) -> GpuConstImage<'fw, P> {
+    let width = img.width();
+    let height = img.height();
+    match P::byte_size() {
+        16 => GpuConstImage::from_bytes(&FW, bytemuck::cast_slice(&img.into_rgba32f()), width, height),
+        _ => GpuConstImage::from_bytes(&FW, &img.into_rgba8(), width, height)
+    }
 }
 
 pub fn dynamic_image_to_cpu_buffer<'img>(img: DynamicImage) -> Vec<Vec4> {
@@ -252,12 +272,12 @@ pub fn dynamic_image_to_cpu_buffer<'img>(img: DynamicImage) -> Vec<Vec4> {
     cpu_data
 }
 
-pub fn fallback_gpu_image<'fw>() -> GpuConstImage<'fw, Rgba8UintNorm> {
-    GpuConstImage::from_bytes(&FW, &[
-        255, 0, 255, 255,
-        255, 0, 255, 255,
-        255, 0, 255, 255,
-        255, 0, 255, 255], 2, 2)
+pub fn fallback_gpu_image<'fw>() -> GpuConstImage<'fw, Rgba32Float> {
+    GpuConstImage::from_bytes(&FW, bytemuck::cast_slice(&[
+        1.0, 0.0, 1.0, 1.0,
+        1.0, 0.0, 1.0, 1.0,
+        1.0, 0.0, 1.0, 1.0,
+        1.0, 0.0, 1.0, 1.0]), 2, 2)
 }
 
 pub fn fallback_cpu_buffer() -> Vec<Vec4> {

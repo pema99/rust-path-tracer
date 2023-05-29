@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, num::NonZeroU32};
 
 use glam::Vec4;
-use image::{DynamicImage, GenericImage, GenericImageView};
+use image::{DynamicImage, GenericImage};
 use fast_image_resize as fr;
 
 #[derive(Clone, Copy)]

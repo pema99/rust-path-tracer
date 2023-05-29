@@ -7,7 +7,7 @@ lazy_static::lazy_static! {
 
 use glam::{UVec2, Vec4, UVec3};
 use gpgpu::{
-    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode, GpuConstImage, primitives::pixels::Rgba8UintNorm
+    BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode, GpuConstImage, primitives::pixels::Rgba32Float
 };
 use image::{RgbaImage, io::Reader, GenericImageView};
 use parking_lot::RwLock;
@@ -99,7 +99,7 @@ impl<'fw> PathTracingKernel<'fw> {
         rng_buffer: &GpuBuffer<'fw, UVec2>,
         output_buffer: &GpuBuffer<'fw, Vec4>,
         world: &GpuWorld<'fw>,
-        skybox: &GpuConstImage<'fw, Rgba8UintNorm>,
+        skybox: &GpuConstImage<'fw, Rgba32Float>,
     ) -> Self {
         let shader = Shader::from_spirv_bytes(&FW, KERNEL, Some("compute"));
         let sampler = Sampler::new(&FW, SamplerWrapMode::ClampToEdge, SamplerFilterMode::Linear);

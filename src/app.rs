@@ -31,6 +31,7 @@ fn is_image(img: &str) -> bool {
     || img.ends_with(".bmp")
     || img.ends_with(".tga")
     || img.ends_with(".hdr")
+    || img.ends_with(".exr")
 }
 
 pub struct App {
@@ -779,12 +780,12 @@ impl PaintCallbackResources {
         
             buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
             device.poll(wgpu::Maintain::Wait);
-            let data = buffer_slice.get_mapped_range();
-        
-            let Some(buffer) = image::ImageBuffer::<image::Bgra<u8>, _>::from_raw(texture_width, texture_height, data.to_vec()) else {
+            let mut data = buffer_slice.get_mapped_range().to_vec();
+            data.chunks_exact_mut(4).for_each(|c| c.swap(0, 2)); // BGRA -> RGBA swizzle
+            let Some(buffer) = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(texture_width, texture_height, data) else {
                 return;
             };
-            let image = image::DynamicImage::ImageBgra8(buffer).into_rgba8();
+            let image = image::DynamicImage::ImageRgba8(buffer).into_rgba8();
             if let Some(path) = tinyfiledialogs::save_file_dialog("Save render", "") {
                 let res = image.save(path);
                 if res.is_err() {
