@@ -35,7 +35,7 @@ I've only tested using Vulkan. If `wgpu` for whatever reason defaults to a diffe
 GPU kernel code is in `kernels/`, code shared between GPU and CPU is in `shared_structs/`, pure CPU code is in `src/`.
 
 # Pretty pictures
-![](image.png)
+![image](https://github.com/pema99/rust-path-tracer/assets/11212115/4f6e0936-77b7-40bf-917c-0424b37b8c74)
 ![image](https://user-images.githubusercontent.com/11212115/236666588-51cb006b-a1c6-4688-b49a-9dfc906cfa6c.png)
 ![image](https://github.com/pema99/rust-path-tracer/assets/11212115/7ba5c1bc-5d85-4e8e-b155-bd2233bad7e2)
 ![image](https://github.com/pema99/rust-path-tracer/assets/11212115/ba63c245-60a2-4eb5-990c-9d2a2e4d5449)
