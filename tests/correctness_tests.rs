@@ -5,9 +5,9 @@ use shared_structs::NextEventEstimation;
 
 fn trace(use_cpu: bool, scene: &str, skybox: Option<&str>, state: &Arc<TracingState>) {
     if use_cpu {
-        trace_cpu(scene, None, state.clone());
+        trace_cpu(scene, skybox, state.clone());
     } else {
-        trace_gpu(scene, None, state.clone());
+        trace_gpu(scene, skybox, state.clone());
     }
 }
 
