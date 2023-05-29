@@ -2,24 +2,6 @@
 // performance regressions. To run them, use `cargo bench`.
 
 use rustic::trace::*;
-use std::{
-    sync::{atomic::Ordering, Arc},
-};
-
-fn setup_trace(width: u32, height: u32, samples: u32) -> Arc<TracingState> {
-    let state = Arc::new(TracingState::new(width, height));
-    state.running.store(true, Ordering::Relaxed);
-    {
-        let state = state.clone();
-        std::thread::spawn(move || {
-            while state.samples.load(Ordering::Relaxed) < samples {
-                std::thread::yield_now();
-            }
-            state.running.store(false, Ordering::Relaxed);
-        });
-    }
-    state
-}
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
