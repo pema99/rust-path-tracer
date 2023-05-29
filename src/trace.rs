@@ -228,7 +228,6 @@ pub fn trace_cpu(
     let mut skybox_image_buffer = fallback_cpu_buffer();
     let mut skybox_size = (2, 2);
     if let Some(skybox_source) = skybox_path.and_then(load_dynamic_image) {
-        println!("{:?}", skybox_path);
         skybox_size = skybox_source.dimensions();
         skybox_image_buffer = dynamic_image_to_cpu_buffer(skybox_source);
     }

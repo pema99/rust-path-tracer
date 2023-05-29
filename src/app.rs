@@ -797,7 +797,7 @@ impl PaintCallbackResources {
             if let Some(path) = tinyfiledialogs::save_file_dialog("Save render", "") {
                 let res = image.save(path);
                 if res.is_err() {
-                    println!("Failed to save image: {:?}", res.err());
+                    #[cfg(debug_assertions)] println!("Failed to save image: {:?}", res.err());
                 }
             }
         }

@@ -1,19 +1,9 @@
-#![feature(int_roundings)]
-
 use std::time::Instant;
 use egui::FontDefinitions;
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use winit::event::Event::{DeviceEvent, WindowEvent, MainEventsCleared, RedrawRequested};
-use app::App;
+use rustic::app::App;
 use winit::event_loop::ControlFlow;
-
-pub mod app;
-pub mod trace;
-pub mod bvh;
-pub mod atlas;
-pub mod asset;
-pub mod light_pick;
-pub mod benchmark;
 
 fn main() {
     let width = 1280;

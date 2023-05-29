@@ -42,3 +42,10 @@ opt-level = 3
 [profile.dev]
 opt-level = 1
 incremental = true
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmark"
+harness = false
