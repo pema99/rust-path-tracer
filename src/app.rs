@@ -3,6 +3,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 use std::{iter, sync::Arc};
+use std::fmt::Debug;
 
 use egui_wgpu::renderer::ScreenDescriptor;
 use egui_winit_platform::Platform;
@@ -15,13 +16,29 @@ use shared_structs::NextEventEstimation;
 use crate::trace::{trace_cpu, trace_gpu, TracingState};
 
 #[repr(u32)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum Tonemapping {
     None,
     Reinhard,
-    ACES,
+    ACESNarkowicz,
+    ACESNarkowiczOverexposed,
+    ACESHill,
     Neutral,
     Uncharted,
+}
+
+impl Debug for Tonemapping {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tonemapping::None => write!(f, "None"),
+            Tonemapping::Reinhard => write!(f, "Reinhard"),
+            Tonemapping::ACESNarkowicz => write!(f, "ACES (N)"),
+            Tonemapping::ACESNarkowiczOverexposed => write!(f, "ACES (N, O)"),
+            Tonemapping::ACESHill => write!(f, "ACES (H)"),
+            Tonemapping::Neutral => write!(f, "Neutral"),
+            Tonemapping::Uncharted => write!(f, "Uncharted"),
+        }
+    }
 }
 
 fn is_image(img: &str) -> bool {
@@ -279,7 +296,9 @@ impl App {
                     .selected_text(format!("{:?}", self.tonemapping))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::None, "None");
-                        ui.selectable_value(&mut self.tonemapping, Tonemapping::ACES, "ACES");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::ACESNarkowicz, "ACES (Narkowicz)");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::ACESNarkowiczOverexposed, "ACES (Narkowicz, overexposed)");
+                        ui.selectable_value(&mut self.tonemapping, Tonemapping::ACESHill, "ACES (Hill)");
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Neutral, "Neutral");
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Reinhard, "Reinhard");
                         ui.selectable_value(&mut self.tonemapping, Tonemapping::Uncharted, "Uncharted");

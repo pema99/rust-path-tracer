@@ -32,13 +32,40 @@ fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {
     return out;
 }
 
-fn aces(x: vec3<f32>) -> vec3<f32> {
+// Narkowicz ACES https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+fn aces_narkowicz(x: vec3<f32>) -> vec3<f32> {
   var a = 2.51;
   var b = 0.03;
   var c = 2.43;
   var d = 0.59;
   var e = 0.14;
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// Hill ACES https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl
+fn aces_hill(x: vec3<f32>) -> vec3<f32> {
+    let acesInput = transpose(mat3x3<f32>(
+        vec3<f32>(0.59719, 0.35458, 0.04823),
+        vec3<f32>(0.07600, 0.90834, 0.01566),
+        vec3<f32>(0.02840, 0.13383, 0.83777)
+    ));
+    let acesOutput = transpose(mat3x3<f32>(
+        vec3<f32>(1.60475, -0.53108, -0.07367),
+        vec3<f32>(-0.10208, 1.10813, -0.00605),
+        vec3<f32>(-0.00327, -0.07276, 1.07602)
+    ));
+
+    var color = acesInput * x;
+
+    let a = color * (color + 0.0245786) - 0.000090537;
+    let b = color * (0.983729 * color + 0.4329510) + 0.238081;
+    color = a / b;
+
+    color = acesOutput * color;
+
+    color = saturate(color);
+
+    return color;
 }
 
 fn reinhard(x: vec3<f32>) -> vec3<f32> {
@@ -70,8 +97,7 @@ fn neutralTonemap(x: vec3<f32>) -> vec3<f32> {
     return x;
 }
 
-fn unchartedPartial(x: vec3<f32>) -> vec3<f32>
-{
+fn unchartedPartial(x: vec3<f32>) -> vec3<f32> {
     var A = 0.15f;
     var B = 0.50f;
     var C = 0.10f;
@@ -81,8 +107,7 @@ fn unchartedPartial(x: vec3<f32>) -> vec3<f32>
     return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
 }
 
-fn uncharted(v: vec3<f32>) -> vec3<f32>
-{
+fn uncharted(v: vec3<f32>) -> vec3<f32> {
     var exposure_bias = 2.0;
     var curr = unchartedPartial(v * exposure_bias);
 
@@ -107,13 +132,19 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         case 1u: { // Reinhard
             tonemapped = reinhard(tonemapped);
         }
-        case 2u: { // ACES
-            tonemapped = aces(tonemapped);
+        case 2u: { // ACES (Narkowicz)
+            tonemapped = aces_narkowicz(tonemapped * 0.6);
         }
-        case 3u: { // Neutral
+        case 3u: { // ACES (Narkowicz, overexposed)
+            tonemapped = aces_narkowicz(tonemapped);
+        }
+        case 4u: { // ACES (Hill)
+            tonemapped = aces_hill(tonemapped);
+        }
+        case 5u: { // Neutral
             tonemapped = neutralTonemap(tonemapped);
         }
-        case 4u: { // Uncharted
+        case 6u: { // Uncharted
             tonemapped = uncharted(tonemapped);
         }
         default: {
