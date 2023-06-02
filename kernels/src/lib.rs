@@ -141,7 +141,7 @@ pub fn trace_pixel(
             }
             
             // Sample BSDF
-            let bsdf = bsdf::get_pbr_bsdf(&material, uv, atlas, sampler);
+            let bsdf = bsdf::get_pbr_bsdf(config, &material, uv, atlas, sampler);
             let bsdf_sample = bsdf.sample(-ray_direction, normal, &mut rng_state);
             last_bsdf_sample = bsdf_sample;
 

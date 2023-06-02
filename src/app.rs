@@ -292,6 +292,25 @@ impl App {
                 }
                 ui.end_row();
 
+                {
+                    let mut config = self.tracing_state.config.write();
+                    if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut config.specular_weight_clamp.x, 0.0..=1.0).text("Min specular")).changed() {
+                        if config.specular_weight_clamp.x > config.specular_weight_clamp.y {
+                            config.specular_weight_clamp.y = config.specular_weight_clamp.x;
+                        }
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
+                    }
+                    ui.end_row();
+
+                    if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut config.specular_weight_clamp.y, 0.0..=1.0).text("Max specular")).changed() {
+                        if config.specular_weight_clamp.x > config.specular_weight_clamp.y {
+                            config.specular_weight_clamp.x = config.specular_weight_clamp.y;
+                        }
+                        self.tracing_state.dirty.store(true, Ordering::Relaxed);
+                    }
+                    ui.end_row();
+                }
+
                 egui::ComboBox::from_label("Tonemapping operator")
                     .selected_text(format!("{:?}", self.tonemapping))
                     .show_ui(ui, |ui| {

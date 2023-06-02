@@ -1,4 +1,4 @@
-use shared_structs::MaterialData;
+use shared_structs::{MaterialData, TracingConfig};
 use spirv_std::{glam::{Vec3, Vec2, Vec4Swizzles}};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
@@ -175,22 +175,30 @@ impl BSDF for Glass {
     }
 }
 
+// Assume IOR of 1.5 for dielectrics, which works well for most.
+const DIELECTRIC_IOR: f32 = 1.5;
+
+// Fresnel at normal incidence for dielectrics, with air as the other medium.
+const DIELECTRIC_F0_SQRT: f32 = (DIELECTRIC_IOR - 1.0) / (DIELECTRIC_IOR + 1.0);
+const DIELECTRIC_F0: f32 = DIELECTRIC_F0_SQRT * DIELECTRIC_F0_SQRT;
+
 pub struct PBR {
     pub albedo: Spectrum,
     pub roughness: f32,
     pub metallic: f32,
+    pub specular_weight_clamp: Vec2,
 }
 
 impl PBR {
     fn evaluate_diffuse_fast(
         &self,
         cos_theta: f32,
-        diffuse_specular_ratio: f32,
+        specular_weight: f32,
         ks: Vec3,
     ) -> Spectrum {
         let kd = (Vec3::splat(1.0) - ks) * (1.0 - self.metallic);
         let diffuse = kd * self.albedo / core::f32::consts::PI;
-        diffuse * cos_theta / (1.0 - diffuse_specular_ratio)
+        diffuse * cos_theta / (1.0 - specular_weight)
     }
 
     fn evaluate_specular_fast(
@@ -200,14 +208,14 @@ impl PBR {
         sample_direction: Vec3,
         cos_theta: f32,
         d_term: f32,
-        diffuse_specular_ratio: f32,
+        specular_weight: f32,
         ks: Vec3,
     ) -> Spectrum {
         let g_term = util::geometry_smith_schlick_ggx(normal, view_direction, sample_direction, self.roughness);
         let specular_numerator = d_term * g_term * ks;
         let specular_denominator = 4.0 * normal.dot(view_direction).max(0.0) * cos_theta;
         let specular = specular_numerator / specular_denominator.max(util::EPS);
-        specular * cos_theta / diffuse_specular_ratio
+        specular * cos_theta / specular_weight
     }
 
     fn pdf_diffuse_fast(&self, cos_theta: f32) -> f32 {
@@ -233,16 +241,20 @@ impl BSDF for PBR {
         sample_direction: Vec3,
         lobe_type: LobeType,
     ) -> Spectrum {
-        let diffuse_specular_ratio = 0.5 + 0.5 * self.metallic; // wtf is this
+        let approx_fresnel = util::fresnel_schlick_scalar(1.0, DIELECTRIC_IOR, normal.dot(view_direction).max(0.0));
+        let mut specular_weight = util::lerp(approx_fresnel, 1.0, self.metallic);
+        if specular_weight != 0.0 && specular_weight != 1.0 {
+            specular_weight = specular_weight.clamp(self.specular_weight_clamp.x, self.specular_weight_clamp.y);
+        }
 
         let cos_theta = normal.dot(sample_direction).max(0.0);
         let halfway = (view_direction + sample_direction).normalize();
 
-        let f0 = Vec3::splat(0.04).lerp(self.albedo, self.metallic);
+        let f0 = Vec3::splat(DIELECTRIC_F0).lerp(self.albedo, self.metallic);
         let ks = util::fresnel_schlick(halfway.dot(view_direction).max(0.0), f0);
 
         if lobe_type == LobeType::DiffuseReflection {
-            self.evaluate_diffuse_fast(cos_theta, diffuse_specular_ratio, ks)
+            self.evaluate_diffuse_fast(cos_theta, specular_weight, ks)
         } else {
             let d_term = util::ggx_distribution(normal, halfway, self.roughness);
             self.evaluate_specular_fast(
@@ -251,7 +263,7 @@ impl BSDF for PBR {
                 sample_direction,
                 cos_theta,
                 d_term,
-                diffuse_specular_ratio,
+                specular_weight,
                 ks,
             )
         }
@@ -259,9 +271,15 @@ impl BSDF for PBR {
 
     fn sample(&self, view_direction: Vec3, normal: Vec3, rng: &mut rng::RngState) -> BSDFSample {
         let rng_sample = rng.gen_r3();
-        let diffuse_specular_ratio = 0.5 + 0.5 * self.metallic; // wtf is this
 
-        let (sampled_direction, sampled_lobe) = if rng_sample.z > diffuse_specular_ratio {
+        let approx_fresnel = util::fresnel_schlick_scalar(1.0, DIELECTRIC_IOR, normal.dot(view_direction).max(0.0));
+        let mut specular_weight = util::lerp(approx_fresnel, 1.0, self.metallic);
+        // Clamp specular weight to prevent firelies. See Jakub Boksansky and Adam Marrs in RT gems 2 chapter 14.
+        if specular_weight != 0.0 && specular_weight != 1.0 {
+            specular_weight = specular_weight.clamp(self.specular_weight_clamp.x, self.specular_weight_clamp.y);
+        }
+
+        let (sampled_direction, sampled_lobe) = if rng_sample.z > specular_weight {
             let (up, nt, nb) = util::create_cartesian(normal);
             let sample = util::cosine_sample_hemisphere(rng_sample.x, rng_sample.y);
             let sampled_direction = Vec3::new(
@@ -285,12 +303,12 @@ impl BSDF for PBR {
         let cos_theta = normal.dot(sampled_direction).max(0.0);
         let halfway = (view_direction + sampled_direction).normalize();
 
-        let f0 = Vec3::splat(0.04).lerp(self.albedo, self.metallic);
+        let f0 = Vec3::splat(DIELECTRIC_F0).lerp(self.albedo, self.metallic);
         let ks = util::fresnel_schlick(halfway.dot(view_direction).max(0.0), f0);
 
         let (sampled_direction, sampled_lobe, pdf, spectrum) = if sampled_lobe == LobeType::DiffuseReflection {
             let pdf = self.pdf_diffuse_fast(cos_theta);
-            let spectrum = self.evaluate_diffuse_fast(cos_theta, diffuse_specular_ratio, ks);
+            let spectrum = self.evaluate_diffuse_fast(cos_theta, specular_weight, ks);
             (sampled_direction, LobeType::DiffuseReflection, pdf, spectrum)
         } else {
             let d_term = util::ggx_distribution(normal, halfway, self.roughness);
@@ -301,7 +319,7 @@ impl BSDF for PBR {
                 sampled_direction,
                 cos_theta,
                 d_term,
-                diffuse_specular_ratio,
+                specular_weight,
                 ks,
             );
             (sampled_direction, LobeType::SpecularReflection, pdf, spectrum)
@@ -333,7 +351,7 @@ impl BSDF for PBR {
     }
 }
 
-pub fn get_pbr_bsdf(material: &MaterialData, uv: Vec2, atlas: &Image!(2D, type=f32, sampled), sampler: &Sampler) -> PBR {
+pub fn get_pbr_bsdf(config: &TracingConfig, material: &MaterialData, uv: Vec2, atlas: &Image!(2D, type=f32, sampled), sampler: &Sampler) -> PBR {
     let albedo = if material.has_albedo_texture() {
         let scaled_uv = material.albedo.xy() + uv * material.albedo.zw();
         let albedo = atlas.sample_by_lod(*sampler, scaled_uv, 0.0);
@@ -364,5 +382,6 @@ pub fn get_pbr_bsdf(material: &MaterialData, uv: Vec2, atlas: &Image!(2D, type=f
         albedo,
         roughness,
         metallic,
+        specular_weight_clamp: config.specular_weight_clamp,
     }
 }

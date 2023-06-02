@@ -21,9 +21,7 @@ pub struct TracingConfig {
     pub sun_direction: Vec4,
     pub nee: u32,
     pub has_skybox: u32,
-
-    pub _padding2: u32,
-    pub _padding3: u32,
+    pub specular_weight_clamp: Vec2,
 }
 
 impl Default for TracingConfig {
@@ -38,9 +36,7 @@ impl Default for TracingConfig {
             sun_direction: Vec3::new(0.5, 1.3, 1.0).normalize().extend(15.0),
             nee: 0,
             has_skybox: 0,
-
-            _padding2: 0,
-            _padding3: 0,
+            specular_weight_clamp: Vec2::new(0.1, 0.9),
         }
     }
 }
