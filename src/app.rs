@@ -294,7 +294,7 @@ impl App {
 
                 {
                     let mut config = self.tracing_state.config.write();
-                    if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut config.specular_weight_clamp.x, 0.0..=1.0).text("Min specular")).changed() {
+                    if ui.add(egui::Slider::new(&mut config.specular_weight_clamp.x, 0.0..=1.0).text("Min specular")).changed() {
                         if config.specular_weight_clamp.x > config.specular_weight_clamp.y {
                             config.specular_weight_clamp.y = config.specular_weight_clamp.x;
                         }
@@ -302,7 +302,7 @@ impl App {
                     }
                     ui.end_row();
 
-                    if ui.add_enabled(!self.use_cpu, egui::Slider::new(&mut config.specular_weight_clamp.y, 0.0..=1.0).text("Max specular")).changed() {
+                    if ui.add(egui::Slider::new(&mut config.specular_weight_clamp.y, 0.0..=1.0).text("Max specular")).changed() {
                         if config.specular_weight_clamp.x > config.specular_weight_clamp.y {
                             config.specular_weight_clamp.x = config.specular_weight_clamp.y;
                         }
