@@ -159,10 +159,15 @@ pub fn trace_gpu(
         }
     }
 
+    // Restore previous state, if there is any
+    let samples_init = state.samples.load(Ordering::Relaxed) as f32;
+    let output_buffer_init = state.framebuffer.read().chunks(3).map(|c| Vec4::new(c[0], c[1], c[2], 1.0) * samples_init).collect::<Vec<_>>();
+
+    // Setup tracing state
     let pixel_count = (screen_width * screen_height) as u64;
     let config_buffer = GpuUniformBuffer::from_slice(&FW, &[*state.config.read()]);
     let rng_buffer = GpuBuffer::from_slice(&FW, if state.use_blue_noise.load(Ordering::Relaxed) { &rng_data_blue } else { &rng_data_uniform });
-    let output_buffer = GpuBuffer::with_capacity(&FW, pixel_count);
+    let output_buffer = GpuBuffer::from_slice(&FW, &output_buffer_init);
 
     let mut image_buffer_raw: Vec<Vec4> = vec![Vec4::ZERO; pixel_count as usize];
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
@@ -250,9 +255,13 @@ pub fn trace_cpu(
         }
     }
 
+    // Reset previous state, if there is any
+    let samples_init = state.samples.load(Ordering::Relaxed) as f32;
+    let mut output_buffer = state.framebuffer.read().chunks(3).map(|c| Vec4::new(c[0], c[1], c[2], 1.0) * samples_init).collect::<Vec<_>>();
+
+    // Setup tracing state
     let pixel_count = (screen_width * screen_height) as u64;
     let mut rng_buffer = if state.use_blue_noise.load(Ordering::Relaxed) { &mut rng_data_blue } else { &mut rng_data_uniform };
-    let mut output_buffer = vec![Vec4::ZERO; pixel_count as usize];
 
     let mut image_buffer: Vec<f32> = vec![0.0; pixel_count as usize * 3];
 

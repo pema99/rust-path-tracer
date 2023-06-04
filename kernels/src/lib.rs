@@ -17,7 +17,7 @@ mod vec;
 mod skybox;
 mod light_pick;
 
-#[inline(always)]
+#[cfg_attr(target_arch = "spirv", inline(always))]
 pub fn trace_pixel(
     id: UVec3,
     config: &TracingConfig,

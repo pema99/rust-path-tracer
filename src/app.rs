@@ -131,22 +131,23 @@ impl App {
         &self.window
     }
 
-    fn start_render(&mut self) {
+    fn start_render(&mut self, continue_previous: bool) {
         if self.compute_join_handle.is_some() {
             self.stop_render();
         }
 
         self.window.set_resizable(false);
         let size = self.window.inner_size();
+        
+        if !continue_previous {
+            let (config, framebuffer) = TracingState::make_view_dependent_state(size.width, size.height, Some(*self.tracing_state.config.read()));
+            *self.tracing_state.config.write() = config;
+            *self.tracing_state.framebuffer.write() = framebuffer;
+            self.tracing_state.samples.store(0, Ordering::Relaxed);
 
-        let (config, framebuffer) = TracingState::make_view_dependent_state(size.width, size.height, Some(*self.tracing_state.config.read()));
-        *self.tracing_state.config.write() = config;
-        *self.tracing_state.framebuffer.write() = framebuffer;
-        self.tracing_state.samples.store(0, Ordering::Relaxed);
-
-        let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, size.width, size.height);
-        self.egui_renderer.paint_callback_resources.insert(render_resources);
-
+            let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, size.width, size.height);
+            self.egui_renderer.paint_callback_resources.insert(render_resources);
+        }
         self.tracing_state.running.store(true, Ordering::Relaxed);
         let tracing_state = self.tracing_state.clone();
 
@@ -173,27 +174,27 @@ impl App {
         }
     }
 
-    fn restart_current_render(&mut self) {
+    fn restart_current_render(&mut self, continue_previous: bool) {
         if self.compute_join_handle.is_some() {
-            self.start_render();
+            self.start_render(continue_previous);
         }
     }
 
     fn set_skybox(&mut self, skybox: &str) {
         self.selected_skybox = Some(skybox.to_string());
         self.tracing_state.config.write().has_skybox = 1;
-        self.restart_current_render();
+        self.restart_current_render(false);
     }
 
     fn clear_skybox(&mut self) {
         self.selected_skybox = None;
         self.tracing_state.config.write().has_skybox = 0;
-        self.restart_current_render();
+        self.restart_current_render(false);
     }
 
     fn set_scene(&mut self, scene: &str) {
         self.selected_scene = scene.to_string();
-        self.start_render();
+        self.start_render(false);
     }
 
     fn on_gui(&mut self, egui_ctx: &egui::Context) {
@@ -215,7 +216,7 @@ impl App {
                             }
                         } else {
                             if ui.button("Start").clicked() {
-                                self.start_render();
+                                self.start_render(false);
                             }
                         }
 
@@ -337,11 +338,11 @@ impl App {
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(!self.use_cpu, "GPU").clicked() { 
                             self.use_cpu = false;
-                            self.restart_current_render();
+                            self.restart_current_render(true);
                         };
                         if ui.selectable_label(self.use_cpu, "CPU").clicked() {
                             self.use_cpu = true;
-                            self.restart_current_render();
+                            self.restart_current_render(true);
                         };
                     });
                 ui.end_row();
