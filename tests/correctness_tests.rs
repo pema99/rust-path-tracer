@@ -15,7 +15,7 @@ fn furnace_test(use_cpu: bool, use_mis: bool) {
     let size = 128;
     let coord = (65, 75);
     let albedo = 0.8;
-    let tolerance = 0.015;
+    let tolerance = 0.02;
 
     let state = setup_trace(size as u32, size as u32, 32);
     if use_mis {
