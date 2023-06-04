@@ -27,7 +27,8 @@ const LDS_PRIMES: [u32; LDS_MAX_DIMENSIONS] = [
 
 // http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 pub fn lds(n: u32, dimension: usize, offset: u32) -> f32 {
-    (LDS_PRIMES[dimension].wrapping_mul(n.wrapping_add(offset))) as f32 / 4294967296.0
+    const INV_U32_MAX_FLOAT: f32 = 1.0 / 4294967296.0;
+    (LDS_PRIMES[dimension].wrapping_mul(n.wrapping_add(offset))) as f32 * INV_U32_MAX_FLOAT 
 }
 
 pub struct RngState {
