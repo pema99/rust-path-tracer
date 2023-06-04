@@ -279,7 +279,7 @@ impl BSDF for PBR {
             specular_weight = specular_weight.clamp(self.specular_weight_clamp.x, self.specular_weight_clamp.y);
         }
 
-        let (sampled_direction, sampled_lobe) = if rng_sample.z > specular_weight {
+        let (sampled_direction, sampled_lobe) = if rng_sample.z >= specular_weight {
             let (up, nt, nb) = util::create_cartesian(normal);
             let sample = util::cosine_sample_hemisphere(rng_sample.x, rng_sample.y);
             let sampled_direction = Vec3::new(
@@ -300,7 +300,7 @@ impl BSDF for PBR {
             (sampled_direction, LobeType::SpecularReflection)
         };
 
-        let cos_theta = normal.dot(sampled_direction).max(0.0);
+        let cos_theta = normal.dot(sampled_direction).max(util::EPS);
         let halfway = (view_direction + sampled_direction).normalize();
 
         let f0 = Vec3::splat(DIELECTRIC_F0).lerp(self.albedo, self.metallic);
