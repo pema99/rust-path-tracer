@@ -88,13 +88,13 @@ fn neutralTonemap(x: vec3<f32>) -> vec3<f32> {
     var whiteClip: f32 = 1.0;
 
     var whiteScale: vec3<f32> = vec3<f32>(1.0) / neutralCurve(vec3<f32>(whiteLevel), a, b, c, d, e, f);
-    var x = neutralCurve(x * whiteScale, a, b, c, d, e, f);
-    x *= whiteScale;
+    var res = neutralCurve(x * whiteScale, a, b, c, d, e, f);
+    res *= whiteScale;
 
     // Post-curve white point adjustment
-    x /= vec3<f32>(whiteClip);
+    res /= vec3<f32>(whiteClip);
 
-    return x;
+    return res;
 }
 
 fn unchartedPartial(x: vec3<f32>) -> vec3<f32> {

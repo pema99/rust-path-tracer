@@ -18,7 +18,6 @@ fn get_output_path() -> PathBuf {
 
 fn main() {
     SpirvBuilder::new("kernels", "spirv-unknown-vulkan1.1")
-        .extra_arg("--no-spirt")
         .build()
         .expect("Kernel failed to compile");
 

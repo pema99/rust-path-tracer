@@ -23,10 +23,12 @@ use rayon::prelude::*;
 use crate::{asset::{World, GpuWorld, dynamic_image_to_cpu_buffer, load_dynamic_image, dynamic_image_to_gpu_image, fallback_gpu_image, fallback_cpu_buffer}};
 
 fn make_framework() -> gpgpu::Framework {
-    let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
     let power_preference = wgpu::util::power_preference_from_env()
         .unwrap_or(wgpu::PowerPreference::HighPerformance);
-    let instance = wgpu::Instance::new(backend);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference,

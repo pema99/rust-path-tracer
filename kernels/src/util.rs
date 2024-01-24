@@ -1,3 +1,4 @@
+use shared_structs::{INFINITY, NEG_INFINITY};
 use spirv_std::glam::Vec3;
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
@@ -269,7 +270,7 @@ pub fn positive_characteristic(x: f32) -> f32 {
 }
 
 pub fn mask_nan(v: Vec3) -> Vec3 {
-    if v.is_finite() {
+    if v.x < INFINITY && v.x > NEG_INFINITY && v.y < INFINITY && v.y > NEG_INFINITY && v.z < INFINITY && v.z > NEG_INFINITY {
         v
     } else {
         Vec3::ZERO

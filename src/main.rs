@@ -1,15 +1,14 @@
 use std::time::Instant;
 use egui::FontDefinitions;
 use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event::Event::{DeviceEvent, WindowEvent, MainEventsCleared, RedrawRequested};
+use winit::event::Event::{DeviceEvent, WindowEvent, AboutToWait};
 use rustic::app::App;
-use winit::event_loop::ControlFlow;
 
 fn main() {
     let width = 1280;
     let height = 720;
 
-    let event_loop = winit::event_loop::EventLoopBuilder::<()>::with_user_event().build();
+    let event_loop = winit::event_loop::EventLoopBuilder::<()>::with_user_event().build().expect("Building event loop failed");
     let window = winit::window::WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)
@@ -33,29 +32,29 @@ fn main() {
     let mut app = App::new(window);
 
     let start_time = Instant::now();
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, elwt| {
         // Pass the winit events to the platform integration.
         platform.handle_event(&event);
 
         match event {
-            RedrawRequested(..) => {
-                app.redraw(&mut platform, &start_time);
-            }
             DeviceEvent {
                 event: winit::event::DeviceEvent::MouseMotion { delta },
                 ..
             } => {
                 app.handle_mouse_motion(delta);
             }
-            MainEventsCleared => {
+            AboutToWait => {
                 app.window().request_redraw();
             }
             WindowEvent { event, .. } => match event {
+                winit::event::WindowEvent::RedrawRequested => {
+                    app.redraw(&mut platform, &start_time);
+                }
                 winit::event::WindowEvent::Resized(size) => {
                     app.handle_resize(size);
                 }
                 winit::event::WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
+                    elwt.exit();
                 }
                 winit::event::WindowEvent::DroppedFile(path) => {
                     app.handle_file_dropped(&path);
@@ -64,5 +63,5 @@ fn main() {
             },
             _ => (),
         }
-    });
+    }).unwrap();
 }

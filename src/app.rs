@@ -1,5 +1,4 @@
 
-use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 use std::{iter, sync::Arc};
@@ -51,7 +50,7 @@ fn is_image(img: &str) -> bool {
     || img.ends_with(".exr")
 }
 
-pub struct App {
+pub struct App<'a> {
     tracing_state: Arc<TracingState>,
     compute_join_handle: Option<std::thread::JoinHandle<()>>,
 
@@ -68,14 +67,20 @@ pub struct App {
     window: winit::window::Window,
     surface_format: wgpu::TextureFormat,
     surface_config: wgpu::SurfaceConfiguration,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'a>,
     egui_renderer: egui_wgpu::renderer::Renderer,
 }
 
-impl App {
+impl App<'_> {
     pub fn new(window: winit::window::Window) -> Self {    
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-        let surface = unsafe { instance.create_surface(&window) };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+        let surface = unsafe {
+            let target = wgpu::SurfaceTargetUnsafe::from_window(&window).expect("Failed to get surface target");
+            instance.create_surface_unsafe(target).expect("Failed to create surface")
+        };
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
@@ -85,8 +90,8 @@ impl App {
     
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
-                features: wgpu::Features::default(),
-                limits: wgpu::Limits::default(),
+                required_features: wgpu::Features::default(),
+                required_limits: wgpu::Limits::default(),
                 label: None,
             },
             None,
@@ -94,7 +99,12 @@ impl App {
         .expect("Failed to creator wgpu device.");
 
         let size = window.inner_size();
-        let surface_format = surface.get_supported_formats(&adapter)[0];
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps.formats.iter()
+            .copied()
+            .filter(|f| f.is_srgb())
+            .next()
+            .unwrap_or(surface_caps.formats[0]);
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -102,6 +112,8 @@ impl App {
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            desired_maximum_frame_latency: 1,
+            view_formats: vec![surface_format]
         };
         surface.configure(&device, &surface_config);
 
@@ -146,7 +158,7 @@ impl App {
             self.tracing_state.samples.store(0, Ordering::Relaxed);
 
             let render_resources = PaintCallbackResources::new(&self.device, self.surface_format, size.width, size.height);
-            self.egui_renderer.paint_callback_resources.insert(render_resources);
+            self.egui_renderer.callback_resources.insert(render_resources);
         }
         self.tracing_state.running.store(true, Ordering::Relaxed);
         let tracing_state = self.tracing_state.clone();
@@ -231,7 +243,7 @@ impl App {
                         }
 
                         if ui.button("Save image").clicked() {
-                            if let Some(resources) = self.egui_renderer.paint_callback_resources.get::<PaintCallbackResources>() {
+                            if let Some(resources) = self.egui_renderer.callback_resources.get::<PaintCallbackResources>() {
                                 let width = self.tracing_state.config.read().width;
                                 let height = self.tracing_state.config.read().height;
                                 resources.save_render(width, height, self.surface_format, &self.device, &self.queue);
@@ -365,7 +377,7 @@ impl App {
     fn on_environment_gui(&mut self, egui_ctx: &egui::Context) {
         let mut show_environment_window = self.show_environment_window;
         egui::Window::new("Environment").open(&mut show_environment_window).show(egui_ctx, |ui| {
-            let mouse_down = ui.input().pointer.primary_down();
+            let mouse_down = ui.input(|i| i.pointer.primary_down());
             let sun_direction = self.tracing_state.config.read().sun_direction;
             {
                 let skybox_name = self.selected_skybox.as_ref().map(|s| s.as_ref()).unwrap_or("Procedural");
@@ -389,7 +401,7 @@ impl App {
             }
             ui.end_row();
 
-            egui::plot::Plot::new("Sun position")
+            egui_plot::Plot::new("Sun position")
                 .view_aspect(1.0)
                 .allow_drag(false)
                 .allow_zoom(false)
@@ -398,7 +410,7 @@ impl App {
                 .height(250.0)
                 .show(ui, |ui| {
                 let n = 512;
-                let circle_points: egui::plot::PlotPoints = (0..=n)
+                let circle_points: egui_plot::PlotPoints = (0..=n)
                     .map(|i| {
                         let t = egui::remap(i as f64, 0.0..=(n as f64), 0.0..=6.28);
                         let r = 1.0;
@@ -408,12 +420,12 @@ impl App {
                         ]
                     })
                     .collect();
-                ui.line(egui::plot::Line::new(circle_points));
+                ui.line(egui_plot::Line::new(circle_points));
 
                 let sun_pos = [sun_direction.x as f64, sun_direction.z as f64];
-                ui.points(egui::plot::Points::new(vec![sun_pos])
+                ui.points(egui_plot::Points::new(vec![sun_pos])
                     .color(egui::Color32::GOLD)
-                    .shape(egui::plot::MarkerShape::Asterisk)
+                    .shape(egui_plot::MarkerShape::Asterisk)
                     .radius(8.0)
                     .name("Sun position"));
                 
@@ -442,7 +454,7 @@ impl App {
         }
         self.last_input = Instant::now();
     
-        if ui.input().pointer.secondary_down() {
+        if ui.input(|i| i.pointer.secondary_down()) {
             self.tracing_state.interacting.store(true, Ordering::Relaxed);
             self.window.set_cursor_visible(false);
         } else {
@@ -459,30 +471,30 @@ impl App {
         forward = euler_mat * forward;
         right = euler_mat * right;
     
-        let speed = if ui.input().modifiers.shift {
+        let speed = if ui.input(|i| i.modifiers.shift) {
             0.5
-        } else if ui.input().modifiers.ctrl {
+        } else if ui.input(|i| i.modifiers.ctrl) {
             0.01
         } else {
             0.1
         };
 
-        if ui.input().key_down(egui::Key::W) {
+        if ui.input(|i| i.key_down(egui::Key::W)) {
             config.cam_position += forward.extend(0.0) * speed;
         }
-        if ui.input().key_down(egui::Key::S) {
+        if ui.input(|i| i.key_down(egui::Key::S)) {
             config.cam_position -= forward.extend(0.0) * speed;
         }
-        if ui.input().key_down(egui::Key::D) {
+        if ui.input(|i| i.key_down(egui::Key::D)) {
             config.cam_position += right.extend(0.0) * speed;
         }
-        if ui.input().key_down(egui::Key::A) {
+        if ui.input(|i| i.key_down(egui::Key::A)) {
             config.cam_position -= right.extend(0.0) * speed;
         }
-        if ui.input().key_down(egui::Key::E) {
+        if ui.input(|i| i.key_down(egui::Key::E)) {
             config.cam_position.y += speed;
         }
-        if ui.input().key_down(egui::Key::Q) {
+        if ui.input(|i| i.key_down(egui::Key::Q)) {
             config.cam_position.y -= speed;
         }
     
@@ -515,34 +527,55 @@ impl App {
                 self.handle_input(ui);
 
                 let rect = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag()).0;
+
+                struct CallbackWrapper {
+                    tonemapping: Tonemapping,
+                    width: u32,
+                    height: u32,
+                    framebuffer: Vec<f32>,
+                }
+                impl egui_wgpu::CallbackTrait for CallbackWrapper {
+                    fn paint<'a>(
+                        &'a self,
+                        _info: egui::PaintCallbackInfo,
+                        rpass: &mut wgpu::RenderPass<'a>,
+                        typemap: &'a egui_wgpu::CallbackResources,
+                    ) {
+                        if let Some(resources) = typemap.get::<PaintCallbackResources>() {
+                            resources.paint(rpass);
+                        }
+                    }
+
+                    fn prepare(
+                        &self,
+                        _device: &wgpu::Device,
+                        queue: &wgpu::Queue,
+                        _egui_encoder: &mut wgpu::CommandEncoder,
+                        typemap: &mut egui_wgpu::CallbackResources,
+                    ) -> Vec<wgpu::CommandBuffer> {
+                        if let Some(resources) = typemap.get::<PaintCallbackResources>() {
+                            resources.prepare(queue, &self.framebuffer, self.width, self.height, self.tonemapping);
+                        }
+                        Default::default()
+                    }
+                }
+
                 let framebuffer = self.tracing_state.framebuffer.read().clone(); // TODO: clone is slow
                 let width = self.tracing_state.config.read().width;
                 let height = self.tracing_state.config.read().height;
                 let tonemapping = self.tonemapping;
-                let cb = egui_wgpu::CallbackFn::new()
-                    .prepare(move |_device, queue, _encoder, typemap| {
-                        if let Some(resources) = typemap.get::<PaintCallbackResources>() {
-                            resources.prepare(queue, &framebuffer, width, height, tonemapping);
-                        }
-                        Default::default()
-                    })
-                    .paint(move |_info, rpass, typemap| {
-                        if let Some(resources) = typemap.get::<PaintCallbackResources>() {
-                            resources.paint(rpass);
-                        }
-                    });
-
-                let callback = egui::PaintCallback {
-                    rect,
-                    callback: Arc::new(cb),
+                let wrapper = CallbackWrapper {
+                    tonemapping,
+                    width,
+                    height,
+                    framebuffer,
                 };
-
-                ui.painter().add(callback);
+                ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, wrapper));
             });
 
         // End the UI frame. We could now handle the output and draw the UI with the backend.
         let full_output = platform.end_frame(Some(&self.window));
-        let paint_jobs = platform.context().tessellate(full_output.shapes);
+        let paint_jobs = platform.context().tessellate(full_output.shapes, full_output.pixels_per_point);
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
@@ -572,13 +605,15 @@ impl App {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     }),
                 ],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
-            self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+            self.egui_renderer.render(&mut render_pass, paint_jobs.as_slice(), &screen_descriptor);
         }
         // Submit the commands.
         self.queue.submit(iter::once(encoder.finish()));
@@ -768,6 +803,7 @@ impl PaintCallbackResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
+            view_formats: &[format],
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
         };
         let texture = device.create_texture(texture_desc);
@@ -782,11 +818,13 @@ impl PaintCallbackResources {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: true,
-                        },
+                            store: wgpu::StoreOp::Store,
+                        }
                     }),
                 ],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             self.paint(&mut render_pass);
         }
@@ -814,8 +852,8 @@ impl PaintCallbackResources {
                 buffer: &output_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: NonZeroU32::new(u32_size * texture_width),
-                    rows_per_image: NonZeroU32::new(texture_height),
+                    bytes_per_row: Some(u32_size * texture_width),
+                    rows_per_image: Some(texture_height),
                 },
             },
             texture_desc.size,

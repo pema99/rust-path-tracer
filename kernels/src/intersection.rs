@@ -1,4 +1,4 @@
-use shared_structs::{BVHNode, PerVertexData};
+use shared_structs::{BVHNode, PerVertexData, INFINITY};
 #[allow(unused_imports)]
 use spirv_std::num_traits::Float;
 use spirv_std::{glam::{UVec4, Vec4, Vec3, Vec4Swizzles}, num_traits::Signed};
@@ -117,7 +117,7 @@ fn intersect_aabb(aabb_min: Vec3, aabb_max: Vec3, ro: Vec3, rd: Vec3, prev_min_t
     if tmax >= tmin && tmax > 0.0 && tmin < prev_min_t {
         tmin
     } else { 
-        f32::INFINITY
+        INFINITY
     }
 }
 
@@ -135,7 +135,7 @@ impl<'a> BVHReference<'a> {
         while !stack.is_empty() {
             let node_index = stack.pop().unwrap();
             let node = &self.nodes[node_index];
-            if intersect_aabb(node.aabb_min(), node.aabb_max(), ro, rd, result.t).is_infinite() {
+            if intersect_aabb(node.aabb_min(), node.aabb_max(), ro, rd, result.t) == INFINITY {
                 continue;
             }
 
@@ -218,12 +218,12 @@ impl<'a> BVHReference<'a> {
                 }
 
                 // if min child isn't hit, both children aren't hit, so skip
-                if min_dist.is_infinite() {
+                if min_dist == INFINITY {
                     continue;
                 }
 
                 // push valid children in the best order
-                if max_dist.is_finite() {
+                if max_dist != INFINITY {
                     stack.push(max_index);
                 }
                 stack.push(min_index); // <-- this child will be popped first

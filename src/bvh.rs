@@ -1,6 +1,6 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
 use gpgpu::{GpuBuffer, BufOps};
-use shared_structs::{BVHNode};
+use shared_structs::{BVHNode, INFINITY, NEG_INFINITY};
 
 use crate::trace::FW;
 
@@ -19,7 +19,7 @@ impl BVHNodeExtensions for BVHNode {
     }
 
     fn encapsulate_node(&mut self, node: &BVHNode) {
-        if node.aabb_min().x == f32::INFINITY {
+        if node.aabb_min().x == INFINITY {
             return;
         }
         self.set_aabb_min(&self.aabb_min().min(node.aabb_min()));
@@ -84,8 +84,8 @@ impl<'a> BVHBuilder<'a> {
 
     fn update_node_aabb(&mut self, node_idx: usize) {
         let node = &mut self.nodes[node_idx];
-        let mut aabb_min = Vec3::splat(f32::INFINITY);
-        let mut aabb_max = Vec3::splat(f32::NEG_INFINITY);
+        let mut aabb_min = Vec3::splat(INFINITY);
+        let mut aabb_max = Vec3::splat(NEG_INFINITY);
 
         for i in 0..node.triangle_count() {
             let triangle_index = (node.first_triangle_index() + i) as usize;
@@ -133,7 +133,7 @@ impl<'a> BVHBuilder<'a> {
         if result > 0.0 {
             result
         } else {
-            f32::INFINITY
+            INFINITY
         }
     }
 
@@ -142,11 +142,11 @@ impl<'a> BVHBuilder<'a> {
         // calculate the best split (SAH)
         let mut best_axis = 0;
         let mut best_split = 0.0;
-        let mut best_cost = f32::INFINITY;
+        let mut best_cost = INFINITY;
         for axis in 0..3 {
             // find bounds of centroids in this node
-            let mut bounds_min = f32::INFINITY;
-            let mut bounds_max = f32::NEG_INFINITY;
+            let mut bounds_min = INFINITY;
+            let mut bounds_max = NEG_INFINITY;
             for i in 0..node.triangle_count() {
                 let triangle_index = (node.first_triangle_index() + i) as usize;
                 let centroid = self.centroids[triangle_index];
@@ -179,11 +179,11 @@ impl<'a> BVHBuilder<'a> {
         // calculate the best split (SAH)
         let mut best_axis = 0;
         let mut best_split = 0.0;
-        let mut best_cost = f32::INFINITY;
+        let mut best_cost = INFINITY;
         for axis in 0..3 {
             // find bounds of centroids in this node
-            let mut bounds_min = f32::INFINITY;
-            let mut bounds_max = f32::NEG_INFINITY;
+            let mut bounds_min = INFINITY;
+            let mut bounds_max = NEG_INFINITY;
             for i in 0..node.triangle_count() {
                 let triangle_index = (node.first_triangle_index() + i) as usize;
                 let centroid = self.centroids[triangle_index];

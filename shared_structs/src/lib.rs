@@ -8,6 +8,8 @@ pub use image_polyfill::polyfill::{Image, Sampler};
 #[cfg(not(target_arch = "spirv"))]
 pub use image_polyfill::polyfill::CpuImage;
 
+pub const INFINITY: f32 = f32::MAX;
+pub const NEG_INFINITY: f32 = f32::MIN;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -128,8 +130,8 @@ pub struct BVHNode {
 impl Default for BVHNode {
     fn default() -> Self {
         Self {
-            aabb_min: Vec4::new(f32::INFINITY, f32::INFINITY, f32::INFINITY, 0.0),
-            aabb_max: Vec4::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY, 0.0),
+            aabb_min: Vec4::new(INFINITY, INFINITY, INFINITY, 0.0),
+            aabb_max: Vec4::new(NEG_INFINITY, NEG_INFINITY, NEG_INFINITY, 0.0),
         }
     }
 }

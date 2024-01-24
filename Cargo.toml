@@ -9,25 +9,28 @@ shared_structs = { path = "shared_structs" }
 kernels = { path = "kernels" }
 bytemuck = { version = "1.13.1", features = ["derive"] }
 glam = { version = "0.22.0", features = ["bytemuck"] }
-gpgpu = { git = "https://github.com/pema99/gpgpu-rs.git", branch = "dev", features = ["image", "integrate-image"] }
+gpgpu = { git = "https://github.com/pema99/gpgpu-rs", branch = "wgpu19", features = ["image", "integrate-image"] }
 rand = "0.8.5"
 oidn = { version = "1.4.3", optional = true }
 lazy_static = "1.4.0"
-russimp = { version = "2.0.5", features = ["prebuilt"] }
+russimp = { git = "https://github.com/pema99/russimp", features = ["prebuilt"], branch = "self" }
+russimp-sys = { git = "https://github.com/pema99/russimp-sys", features = ["prebuilt"] }
 image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "hdr", "tga", "exr", "openexr"] }
 parking_lot = "0.12.1"
-winit = "0.27.5"
-wgpu = { version = "0.14.2", features = ["spirv"] }
-egui-wgpu = "0.20.0"
-egui_winit_platform = "0.17.0"
-egui = "0.20.0"
+winit = "0.29.10"
+wgpu = { version = "0.19.1", features = ["spirv"] }
+egui-wgpu = { git = "https://github.com/pema99/egui" }
+egui_winit_platform = { git = "https://github.com/pema99/egui_winit_platform" }
+egui = { git = "https://github.com/pema99/egui" }
+egui_plot = { git = "https://github.com/pema99/egui" }
 pollster = "0.2.5"
 tinyfiledialogs = "3.9.1"
 fast_image_resize = "2.7.3"
 rayon = "1.7.0"
+ahash = "=0.8.6"
 
 [build-dependencies]
-spirv-builder = "0.7.0"
+spirv-builder = "0.8.0"
 
 [features]
 oidn = ["dep:oidn"]
