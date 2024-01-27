@@ -1,4 +1,4 @@
-use spirv_std::glam::{UVec2, Vec2, Vec3};
+use spirv_std::glam::{Vec2, Vec3};
 
 #[allow(dead_code)]
 #[cfg(target_arch = "spirv")]
@@ -26,31 +26,31 @@ const LDS_PRIMES: [u32; LDS_MAX_DIMENSIONS] = [
 ];
 
 // http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
-pub fn lds(n: u32, dimension: usize, offset: u32) -> f32 {
+pub fn lds(n: u32, dimension: usize) -> f32 {
     const INV_U32_MAX_FLOAT: f32 = 1.0 / 4294967296.0;
-    (LDS_PRIMES[dimension].wrapping_mul(n.wrapping_add(offset))) as f32 * INV_U32_MAX_FLOAT 
+    (LDS_PRIMES[dimension].wrapping_mul(n)) as f32 * INV_U32_MAX_FLOAT 
 }
 
 pub struct RngState {
-    state: UVec2,
+    state: u32,
     dimension: usize,
 }
 
 impl RngState {
-    pub fn new(state: UVec2) -> Self {
+    pub fn new(state: u32) -> Self {
         Self {
             state,
             dimension: 0,
         }
     }
 
-    pub fn next_state(&self) -> UVec2 {
-        UVec2::new(self.state.x + 1, self.state.y)
+    pub fn next_state(&self) -> u32 {
+        self.state + 1
     }
 
     pub fn gen_r1(&mut self) -> f32 {
         self.dimension += 1;
-        lds(self.state.x, self.dimension, self.state.y)
+        lds(self.state, self.dimension)
     }
 
     pub fn gen_r2(&mut self) -> Vec2 {

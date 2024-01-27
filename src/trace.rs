@@ -98,7 +98,7 @@ struct PathTracingKernel<'fw>(Kernel<'fw>);
 impl<'fw> PathTracingKernel<'fw> {
     fn new(
         config_buffer: &GpuUniformBuffer<'fw, TracingConfig>,
-        rng_buffer: &GpuBuffer<'fw, UVec2>,
+        rng_buffer: &GpuBuffer<'fw, u32>,
         output_buffer: &GpuBuffer<'fw, Vec4>,
         world: &GpuWorld<'fw>,
         skybox: &GpuConstImage<'fw, Rgba32Float>,
@@ -149,15 +149,14 @@ pub fn trace_gpu(
     let screen_height = state.config.read().height;
     let pixel_count = (screen_width * screen_height) as usize;
     let mut rng = rand::thread_rng();
-    let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
-    let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    let mut rng_data_blue: Vec<u32> = vec![0; pixel_count];
+    let mut rng_data_uniform: Vec<u32> = vec![0; pixel_count];
     for y in 0..screen_height {
         for x in 0..screen_width {
             let pixel_index = (y * screen_width + x) as usize;
             let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
-            rng_data_blue[pixel_index].x = 0;
-            rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
-            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+            rng_data_blue[pixel_index] = (pixel * 4294967295.0) as u32;
+            rng_data_uniform[pixel_index] = rand::Rng::gen(&mut rng);
         }
     }
 
@@ -245,15 +244,14 @@ pub fn trace_cpu(
     let screen_height = state.config.read().height;
     let pixel_count = (screen_width * screen_height) as usize;
     let mut rng = rand::thread_rng();
-    let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
-    let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
+    let mut rng_data_blue: Vec<u32> = vec![0; pixel_count];
+    let mut rng_data_uniform: Vec<u32> = vec![0; pixel_count];
     for y in 0..screen_height {
         for x in 0..screen_width {
             let pixel_index = (y * screen_width + x) as usize;
             let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
-            rng_data_blue[pixel_index].x = 0;
-            rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
-            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+            rng_data_blue[pixel_index] = (pixel * 4294967295.0) as u32;
+            rng_data_uniform[pixel_index] = rand::Rng::gen(&mut rng);
         }
     }
 

@@ -21,7 +21,7 @@ mod light_pick;
 pub fn trace_pixel(
     id: UVec3,
     config: &TracingConfig,
-    rng: UVec2,
+    rng: u32,
     per_vertex_buffer: &[PerVertexData],
     index_buffer: &[UVec4],
     nodes_buffer: &[BVHNode],
@@ -30,7 +30,7 @@ pub fn trace_pixel(
     sampler: &Sampler,
     atlas: &Image!(2D, type=f32, sampled),
     skybox: &Image!(2D, type=f32, sampled),
-) -> (Vec4, UVec2) {
+) -> (Vec4, u32) {
     let nee_mode = NextEventEstimation::from_u32(config.nee);
     let nee = nee_mode.uses_nee();
     let mut rng_state = rng::RngState::new(rng);
@@ -190,7 +190,7 @@ pub fn trace_pixel(
 pub fn trace_kernel(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] config: &TracingConfig,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [UVec2],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] rng: &mut [u32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] output: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] per_vertex_buffer: &[PerVertexData],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] index_buffer: &[UVec4],
