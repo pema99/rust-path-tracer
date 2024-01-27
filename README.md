@@ -20,7 +20,7 @@ Yet another GPU accelerated toy path tracer, but everything is written in Rust (
 cargo run
 ```
 
-The path tracer optionally supports denoising via OpenImageDenoise, via feature flag `oidn`. To use this feature, first [install OpenImageDenoise](https://www.openimagedenoise.org/downloads.html) and ensure that the `OIDN_DIR` environment variable points to your install location.
+The path tracer optionally supports denoising via OpenImageDenoise, via feature flag `oidn`. To use this feature, first [install OpenImageDenoise 1.4.3](https://github.com/OpenImageDenoise/oidn/releases/tag/v1.4.3) and ensure that the `OIDN_DIR` environment variable points to your install location.
 
 ```sh
 # with denoising (requires OIDN to be installed and available on PATH)
