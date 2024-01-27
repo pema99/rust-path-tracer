@@ -229,10 +229,10 @@ impl NextEventEstimation {
     }
 
     pub fn uses_mis(&self) -> bool {
-        self == &NextEventEstimation::MultipleImportanceSampling
+        *self == NextEventEstimation::MultipleImportanceSampling
     }
 
     pub fn uses_nee(&self) -> bool {
-        self != &NextEventEstimation::None
+        *self != NextEventEstimation::None
     }
 }

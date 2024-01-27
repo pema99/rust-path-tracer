@@ -1,3 +1,4 @@
 /target
 /kernels/target
+/shared_structs/target
 .benchmarks/

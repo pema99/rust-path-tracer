@@ -192,12 +192,12 @@ impl World {
         }
 
         // BVH building
-        let now = std::time::Instant::now();
+        #[cfg(debug_assertions)] let now = std::time::Instant::now();
         let bvh = BVHBuilder::new(&vertices, &mut indices).sah_samples(128).build();
         #[cfg(debug_assertions)] println!("BVH build time: {:?}", now.elapsed());
 
         // Build light pick table
-        let now = std::time::Instant::now();
+        #[cfg(debug_assertions)] let now = std::time::Instant::now();
         let emissive_mask = light_pick::compute_emissive_mask(&indices, &material_datas);
         let light_pick_table = light_pick::build_light_pick_table(&vertices, &indices, &emissive_mask, &material_datas);
         #[cfg(debug_assertions)] println!("Light pick table build time: {:?}", now.elapsed());
