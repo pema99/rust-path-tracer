@@ -5,7 +5,7 @@ lazy_static::lazy_static! {
     pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
-use glam::{UVec2, Vec4, UVec3};
+use glam::{Vec4, UVec3};
 use gpgpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode, GpuConstImage, primitives::pixels::Rgba32Float
 };
@@ -20,7 +20,7 @@ use std::{sync::{
 }, io::Cursor};
 use rayon::prelude::*;
 
-use crate::{asset::{World, GpuWorld, dynamic_image_to_cpu_buffer, load_dynamic_image, dynamic_image_to_gpu_image, fallback_gpu_image, fallback_cpu_buffer}};
+use crate::asset::{World, GpuWorld, dynamic_image_to_cpu_buffer, load_dynamic_image, dynamic_image_to_gpu_image, fallback_gpu_image, fallback_cpu_buffer};
 
 fn make_framework() -> gpgpu::Framework {
     let power_preference = wgpu::util::power_preference_from_env()
