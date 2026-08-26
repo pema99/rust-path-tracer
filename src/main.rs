@@ -1,68 +1,78 @@
-use std::time::Instant;
-use egui::FontDefinitions;
-use egui_winit_platform::{Platform, PlatformDescriptor};
-use winit::event::Event::{DeviceEvent, WindowEvent, MainEventsCleared, RedrawRequested};
+use std::sync::Arc;
 use rustic::app::App;
-use winit::event_loop::ControlFlow;
+use winit::application::ApplicationHandler;
+use winit::event::{DeviceEvent, DeviceId, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::{Window, WindowId};
 
-fn main() {
-    let width = 1280;
-    let height = 720;
+#[derive(Default)]
+struct Runner {
+    app: Option<App>,
+}
 
-    let event_loop = winit::event_loop::EventLoopBuilder::<()>::with_user_event().build();
-    let window = winit::window::WindowBuilder::new()
-        .with_decorations(true)
-        .with_resizable(true)
-        .with_transparent(false)
-        .with_title("rust-path-tracer")
-        .with_inner_size(winit::dpi::PhysicalSize {
-            width,
-            height,
-        })
-        .build(&event_loop)
-        .expect("Building window failed");
+impl ApplicationHandler for Runner {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.app.is_some() {
+            return;
+        }
 
-    let mut platform = Platform::new(PlatformDescriptor {
-        physical_width: width,
-        physical_height: height,
-        scale_factor: window.scale_factor(),
-        font_definitions: FontDefinitions::default(),
-        style: Default::default(),
-    });
+        let width = 1280;
+        let height = 720;
 
-    let mut app = App::new(window);
+        let window = event_loop.create_window(Window::default_attributes()
+            .with_decorations(true)
+            .with_resizable(true)
+            .with_transparent(false)
+            .with_title("rust-path-tracer")
+            .with_inner_size(winit::dpi::PhysicalSize {
+                width,
+                height,
+            }))
+            .expect("Building window failed");
 
-    let start_time = Instant::now();
-    event_loop.run(move |event, _, control_flow| {
+        self.app = Some(App::new(Arc::new(window)));
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+        let Some(app) = self.app.as_mut() else {
+            return;
+        };
+
         // Pass the winit events to the platform integration.
-        platform.handle_event(&event);
+        app.handle_window_event(&event);
 
         match event {
-            RedrawRequested(..) => {
-                app.redraw(&mut platform, &start_time);
+            WindowEvent::RedrawRequested => {
+                app.redraw();
             }
-            DeviceEvent {
-                event: winit::event::DeviceEvent::MouseMotion { delta },
-                ..
-            } => {
-                app.handle_mouse_motion(delta);
+            WindowEvent::Resized(size) => {
+                app.handle_resize(size);
             }
-            MainEventsCleared => {
-                app.window().request_redraw();
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
             }
-            WindowEvent { event, .. } => match event {
-                winit::event::WindowEvent::Resized(size) => {
-                    app.handle_resize(size);
-                }
-                winit::event::WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                winit::event::WindowEvent::DroppedFile(path) => {
-                    app.handle_file_dropped(&path);
-                }
-                _ => {}
-            },
-            _ => (),
+            WindowEvent::DroppedFile(path) => {
+                app.handle_file_dropped(&path);
+            }
+            _ => {}
         }
-    });
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+        if let (Some(app), DeviceEvent::MouseMotion { delta }) = (self.app.as_mut(), event) {
+            app.handle_mouse_motion(delta);
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(app) = self.app.as_ref() {
+            app.window().request_redraw();
+        }
+    }
+}
+
+fn main() {
+    let event_loop = EventLoop::new().expect("Failed to create event loop");
+    event_loop.set_control_flow(ControlFlow::Poll);
+    event_loop.run_app(&mut Runner::default()).expect("Event loop failed");
 }

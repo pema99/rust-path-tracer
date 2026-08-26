@@ -1,6 +1,5 @@
-#![feature(int_roundings)]
-
 pub mod app;
+pub mod gpu;
 pub mod trace;
 pub mod bvh;
 pub mod atlas;

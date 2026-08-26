@@ -1,5 +1,5 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
-use rand::Rng;
+use rand::RngExt;
 use shared_structs::{LightPickEntry, MaterialData};
 
 fn triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f32 {
@@ -124,9 +124,9 @@ pub fn build_light_pick_table(
 // Just for reference
 #[allow(dead_code)]
 fn pick_light(table: &[LightPickEntry]) -> u32 {
-    let rng = rand::thread_rng().gen_range(0..table.len());
+    let rng = rand::rng().random_range(0..table.len());
     let entry = table[rng];
-    let rng = rand::thread_rng().gen_range(0.0..1.0);
+    let rng = rand::rng().random_range(0.0..1.0);
     if rng < entry.ratio {
         entry.triangle_index_a
     } else {
@@ -250,7 +250,7 @@ pub fn compare_approaches(vertices: &[Vec4], indices: &[UVec4], mask: &[bool]) {
         data[choice as usize] += 1;
     }*/
     for i in 0..samples {
-        let rng = rand::thread_rng().gen_range(0.0..1.0);
+        let rng = rand::rng().random_range(0.0..1.0);
         let mut j = 0;
         while j < cdf_table.len() - 1 && rng > cdf_table[j] {
             j += 1;

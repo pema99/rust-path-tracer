@@ -1,12 +1,10 @@
 use spirv_builder::SpirvBuilder;
 
-#[cfg(feature = "oidn")]
 use std::{
     env,
     path::{Path, PathBuf},
 };
 
-#[cfg(feature = "oidn")]
 fn get_output_path() -> PathBuf {
     let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
     let build_type = env::var("PROFILE").unwrap();
@@ -16,11 +14,34 @@ fn get_output_path() -> PathBuf {
     return PathBuf::from(path);
 }
 
+fn copy_assimp_shared_library() {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let build_dir: &Path = out_dir.parent().unwrap().parent().unwrap();
+    for entry in std::fs::read_dir(build_dir).unwrap().flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("russimp-sys-") {
+            continue;
+        }
+        let Ok(bins) = std::fs::read_dir(entry.path().join("out").join("dylib").join("bin")) else {
+            continue;
+        };
+        for bin in bins.flatten() {
+            let path = bin.path();
+            let mut output_path = get_output_path();
+            output_path.push(path.file_name().unwrap());
+            if std::fs::copy(&path, &output_path).is_err() && !output_path.exists() {
+                panic!("Failed to copy {}", path.display());
+            }
+        }
+    }
+}
+
 fn main() {
-    SpirvBuilder::new("kernels", "spirv-unknown-vulkan1.1")
-        .extra_arg("--no-spirt")
-        .build()
-        .expect("Kernel failed to compile");
+    let mut builder = SpirvBuilder::new("kernels", "spirv-unknown-vulkan1.1");
+    builder.build_script.defaults = true;
+    builder.build_script.env_shader_spv_path = Some(true);
+    builder.build().expect("Kernel failed to compile");
+
+    copy_assimp_shared_library();
 
     #[cfg(feature = "oidn")]
     {

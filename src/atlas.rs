@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, num::NonZeroU32};
+use std::collections::VecDeque;
 
 use glam::Vec4;
 use image::{DynamicImage, GenericImage};
@@ -68,20 +68,18 @@ pub fn pack_textures(textures: &[DynamicImage], atlas_width: u32, atlas_height: 
     leafs.sort_by(|a, b| b.width.cmp(&a.width));
     leafs.truncate(textures.len());
 
-    let mut resizer = fr::Resizer::new(fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3));
+    let mut resizer = fr::Resizer::new();
+    let resize_options = fr::ResizeOptions::new()
+        .resize_alg(fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3))
+        .use_alpha(false);
     let mut atlas = DynamicImage::new_rgba8(atlas_width, atlas_height);
     for (i, leaf) in leafs.iter().enumerate() {
         let tex = &textures[i];
-        let width = NonZeroU32::new(tex.width()).unwrap();
-        let height = NonZeroU32::new(tex.height()).unwrap();
+        let fr_img_src = fr::images::Image::from_vec_u8(tex.width(), tex.height(), tex.to_rgba8().into_raw(), fr::PixelType::U8x4).unwrap();
+        let mut fr_img_dst = fr::images::Image::new(leaf.width, leaf.height, fr::PixelType::U8x4);
+        resizer.resize(&fr_img_src, &mut fr_img_dst, &resize_options).unwrap();
 
-        let desired_width = NonZeroU32::new(leaf.width).unwrap();
-        let desired_height = NonZeroU32::new(leaf.height).unwrap();
-        let fr_img_src = fr::Image::from_vec_u8(width, height, tex.to_rgba8().into_raw(), fr::PixelType::U8x4).unwrap();
-        let mut fr_img_dst = fr::Image::new(desired_width, desired_height, fr::PixelType::U8x4);
-        resizer.resize(&fr_img_src.view(), &mut fr_img_dst.view_mut()).unwrap();
-
-        let resized_tex = DynamicImage::ImageRgba8(image::RgbaImage::from_raw(desired_width.get(), desired_height.get(), fr_img_dst.into_vec()).unwrap());
+        let resized_tex = DynamicImage::ImageRgba8(image::RgbaImage::from_raw(leaf.width, leaf.height, fr_img_dst.into_vec()).unwrap());
         atlas.copy_from(&resized_tex.flipv(), leaf.x, leaf.y).unwrap();
     }
 

@@ -1,4 +1,4 @@
 [toolchain]
-channel = "nightly-2023-03-04"
-components = ["rust-src", "rustc-dev", "llvm-tools-preview"]
-# commit_hash = 44cfafe2fafe816395d3acc434663a45d5178c41
+channel = "nightly-2026-04-11"
+components = ["rust-src", "rustc-dev", "llvm-tools"]
+# commit_hash = 02c7f9bec0fd583160f8bcccb830216023b07bee

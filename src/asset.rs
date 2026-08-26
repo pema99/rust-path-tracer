@@ -1,5 +1,5 @@
 use glam::{UVec4, Vec4, Mat4, Vec2, Vec3};
-use gpgpu::{GpuBuffer, BufOps, GpuConstImage, primitives::{pixels::{Rgba8UintNorm, Rgba32Float}, PixelInfo}, ImgOps};
+use crate::gpu::{GpuBuffer, BufOps, GpuConstImage, primitives::{pixels::{Rgba8UintNorm, Rgba32Float}, PixelInfo}, ImgOps};
 use image::DynamicImage;
 use russimp::{scene::{Scene, PostProcess::*}, node::Node, material::{DataContent, TextureType, Texture, Material, PropertyTypeInfo}};
 use shared_structs::{MaterialData, PerVertexData, LightPickEntry};
@@ -32,7 +32,7 @@ fn convert_texture(texture: &Texture) -> Option<DynamicImage> {
             image::DynamicImage::ImageRgba8(image_buffer)
         },
         DataContent::Bytes(bytes) => {
-            image::io::Reader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.decode().ok()?
+            image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.decode().ok()?
         }
     };
 
@@ -241,17 +241,10 @@ pub fn load_dynamic_image(path: &str) -> Option<DynamicImage> {
         let hdr_decoder = image::codecs::hdr::HdrDecoder::new(std::io::BufReader::new(
             std::fs::File::open(&path).unwrap(),
         )).ok()?;
-        let width = hdr_decoder.metadata().width;
-        let height = hdr_decoder.metadata().height;
-        let buffer = hdr_decoder.read_image_hdr().ok()?;
-        return Some(DynamicImage::ImageRgb32F(image::ImageBuffer::from_vec(
-            width,
-            height,
-            buffer.into_iter().flat_map(|c| vec![c[0], c[1], c[2]]).collect(),
-        )?));
+        return DynamicImage::from_decoder(hdr_decoder).ok();
     }
 
-    image::io::Reader::open(path).ok()?.decode().ok()
+    image::ImageReader::open(path).ok()?.decode().ok()
 }
 
 pub fn dynamic_image_to_gpu_image<'fw, P: PixelInfo>(img: DynamicImage) -> GpuConstImage<'fw, P> {

@@ -1,15 +1,15 @@
 const KERNEL: &[u8] = include_bytes!(env!("kernels.spv"));
 const BLUE_BYTES: &[u8] = include_bytes!("resources/bluenoise.png");
 lazy_static::lazy_static! {
-    pub static ref FW: gpgpu::Framework = make_framework();
-    pub static ref BLUE_TEXTURE: RgbaImage = Reader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
+    pub static ref FW: crate::gpu::Framework = make_framework();
+    pub static ref BLUE_TEXTURE: RgbaImage = ImageReader::new(Cursor::new(BLUE_BYTES)).with_guessed_format().unwrap().decode().unwrap().into_rgba8();
 }
 
 use glam::{UVec2, Vec4, UVec3};
-use gpgpu::{
+use crate::gpu::{
     BufOps, DescriptorSet, GpuBuffer, GpuBufferUsage, GpuUniformBuffer, Kernel, Program, Shader, Sampler, SamplerWrapMode, SamplerFilterMode, GpuConstImage, primitives::pixels::Rgba32Float
 };
-use image::{RgbaImage, io::Reader, GenericImageView};
+use image::{RgbaImage, ImageReader, GenericImageView};
 use parking_lot::RwLock;
 use pollster::FutureExt;
 use shared_structs::CpuImage;
@@ -22,11 +22,14 @@ use rayon::prelude::*;
 
 use crate::{asset::{World, GpuWorld, dynamic_image_to_cpu_buffer, load_dynamic_image, dynamic_image_to_gpu_image, fallback_gpu_image, fallback_cpu_buffer}};
 
-fn make_framework() -> gpgpu::Framework {
-    let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
-    let power_preference = wgpu::util::power_preference_from_env()
+fn make_framework() -> crate::gpu::Framework {
+    let backend = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY);
+    let power_preference = wgpu::PowerPreference::from_env()
         .unwrap_or(wgpu::PowerPreference::HighPerformance);
-    let instance = wgpu::Instance::new(backend);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: backend,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference,
@@ -34,7 +37,7 @@ fn make_framework() -> gpgpu::Framework {
         })
         .block_on()
         .expect("Failed at adapter creation.");
-    gpgpu::Framework::new(adapter, std::time::Duration::from_millis(1)).block_on()
+    crate::gpu::Framework::new(adapter).block_on()
 }
 
 pub struct TracingState {
@@ -124,7 +127,7 @@ impl<'fw> PathTracingKernel<'fw> {
 
 #[cfg(feature = "oidn")]
 fn denoise_image(width: usize, height: usize, input: &mut [f32]) {
-    let device = oidn::Device::new();
+    let device = oidn::Device::new().expect("Failed to create OIDN device.");
     oidn::RayTracing::new(&device)
         .hdr(true)
         .srgb(false)
@@ -146,7 +149,7 @@ pub fn trace_gpu(
     let screen_width = state.config.read().width;
     let screen_height = state.config.read().height;
     let pixel_count = (screen_width * screen_height) as usize;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
     let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
     for y in 0..screen_height {
@@ -155,7 +158,7 @@ pub fn trace_gpu(
             let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
             rng_data_blue[pixel_index].x = 0;
             rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
-            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+            rng_data_uniform[pixel_index].x = rand::RngExt::random(&mut rng);
         }
     }
 
@@ -242,7 +245,7 @@ pub fn trace_cpu(
     let screen_width = state.config.read().width;
     let screen_height = state.config.read().height;
     let pixel_count = (screen_width * screen_height) as usize;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut rng_data_blue: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
     let mut rng_data_uniform: Vec<UVec2> = vec![UVec2::ZERO; pixel_count];
     for y in 0..screen_height {
@@ -251,7 +254,7 @@ pub fn trace_cpu(
             let pixel = BLUE_TEXTURE.get_pixel(x % BLUE_TEXTURE.width(), y % BLUE_TEXTURE.height())[0] as f32 / 255.0;
             rng_data_blue[pixel_index].x = 0;
             rng_data_blue[pixel_index].y = (pixel * 4294967295.0) as u32;
-            rng_data_uniform[pixel_index].x = rand::Rng::gen(&mut rng);
+            rng_data_uniform[pixel_index].x = rand::RngExt::random(&mut rng);
         }
     }
 

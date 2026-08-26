@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 bytemuck = { version = "1.13.1", features = ["derive"] }
-glam = { version = "0.22", default-features = false, features = ["bytemuck"] }
-spirv-std = "0.7.0"
+glam = { version = "0.33.5", default-features = false, features = ["bytemuck", "libm", "all-types"] }
+spirv-std = "0.10.0-alpha.1"

@@ -1,5 +1,5 @@
 use glam::{UVec4, Vec3, Vec4, Vec4Swizzles};
-use gpgpu::{GpuBuffer, BufOps};
+use crate::gpu::{GpuBuffer, BufOps};
 use shared_structs::{BVHNode};
 
 use crate::trace::FW;
